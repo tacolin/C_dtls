@@ -55,7 +55,8 @@ static int _configAddr(const char* ip_str, const int port, myaddr* addr)
     return DTLS_OK;
 }
 
-static int _verifyCookie(SSL *ssl, unsigned char *cookie, unsigned int cookie_len)
+static int _verifyCookie(SSL *ssl, unsigned char *cookie,
+                         unsigned int cookie_len)
 {
     unsigned char *buffer, result[EVP_MAX_MD_SIZE];
     unsigned int length = 0, resultlength;
@@ -135,7 +136,8 @@ static int _verifyCookie(SSL *ssl, unsigned char *cookie, unsigned int cookie_le
 
 }
 
-static int _generateCookie(SSL *ssl, unsigned char *cookie, unsigned int *pCookieLen)
+static int _generateCookie(SSL *ssl, unsigned char *cookie,
+                           unsigned int *cookie_len)
 {
     unsigned char *buffer, result[EVP_MAX_MD_SIZE];
     unsigned int length = 0, resultlength;
@@ -213,7 +215,7 @@ static int _generateCookie(SSL *ssl, unsigned char *cookie, unsigned int *pCooki
     OPENSSL_free(buffer);
 
     memcpy(cookie, result, resultlength);
-    *pCookieLen = resultlength;
+    *cookie_len = resultlength;
 
     return 1;
 
@@ -296,7 +298,8 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
 
     /* Set new fd and set BIO to connected */
     BIO_set_fd(SSL_get_rbio(info->ssl), fd, BIO_NOCLOSE);
-    BIO_ctrl(SSL_get_rbio(info->ssl), BIO_CTRL_DGRAM_SET_CONNECTED, 0, &info->client_addr.ss);
+    BIO_ctrl(SSL_get_rbio(info->ssl), BIO_CTRL_DGRAM_SET_CONNECTED, 0,
+             &info->client_addr.ss);
 
     /* Finish handshake */
     do
@@ -312,7 +315,8 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
         return DTLS_FAIL;
     }
 
-    BIO_ctrl(SSL_get_rbio(info->ssl), BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &info->timeout);
+    BIO_ctrl(SSL_get_rbio(info->ssl), BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0,
+             &info->timeout);
 
     X509* pX509 = SSL_get_peer_certificate(info->ssl);
     if (pX509)
@@ -321,8 +325,9 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
         X509_NAME_print_ex_fp(stdout, X509_get_subject_name(pX509),
                               1, XN_FLAG_MULTILINE);
         printf("\n\n");
-        dprint("Cipher: %s", SSL_CIPHER_get_name(SSL_get_current_cipher(info->ssl)));
-        dprint("------------------------------------------------------------\n");
+        printf("Cipher: %s",
+               SSL_CIPHER_get_name(SSL_get_current_cipher(info->ssl)));
+        printf("------------------------------------------------------------\n");
 
         X509_free(pX509);
     }
@@ -349,29 +354,40 @@ static void* _handleDtlsConn(void *arg)
     fd = socket(info->client_addr.ss.ss_family, SOCK_DGRAM, 0);
     check_if(fd < 0, goto _CLEANUP, "socket failed");
 
-    check = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void*) &on, (socklen_t) sizeof(on));
+    check = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void*)&on,
+                       (socklen_t)sizeof(on));
     check_if(check < 0, goto _CLEANUP, "setsockopt reuse addr failed");
 
     switch (info->client_addr.ss.ss_family)
     {
         case AF_INET:
-            check = bind(fd, (const struct sockaddr*)&info->local_addr, sizeof(struct sockaddr_in));
-            check_if(check < 0, goto _CLEANUP, "AF_INET bind local addr failed");
+            check = bind(fd, (const struct sockaddr*)&info->local_addr,
+                         sizeof(struct sockaddr_in));
+            check_if(check < 0, goto _CLEANUP,
+                     "AF_INET bind local addr failed");
 
-            check = connect(fd, (struct sockaddr*)&info->client_addr, sizeof(struct sockaddr_in));
-            check_if(check < 0, goto _CLEANUP, "AF_INET connect client addr failed");
+            check = connect(fd, (struct sockaddr*)&info->client_addr,
+                            sizeof(struct sockaddr_in));
+            check_if(check < 0, goto _CLEANUP,
+                     "AF_INET connect client addr failed");
 
             break;
 
         case AF_INET6:
-            check = setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&off, sizeof(off));
-            check_if(check < 0, goto _CLEANUP, "AF_INET6 setsockopt IPV6_V6ONLY failed");
+            check = setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&off,
+                               sizeof(off));
+            check_if(check < 0, goto _CLEANUP,
+                     "AF_INET6 setsockopt IPV6_V6ONLY failed");
 
-            check = bind(fd, (const struct sockaddr *) &info->local_addr, sizeof(struct sockaddr_in6));
-            check_if(check < 0, goto _CLEANUP, "AF_INET6 bind local addr failed");
+            check = bind(fd, (const struct sockaddr*)&info->local_addr,
+                         sizeof(struct sockaddr_in6));
+            check_if(check < 0, goto _CLEANUP,
+                     "AF_INET6 bind local addr failed");
 
-            check = connect(fd, (struct sockaddr *) &info->client_addr, sizeof(struct sockaddr_in6));
-            check_if(check < 0, goto _CLEANUP, "AF_INET6 connect client addr failed");
+            check = connect(fd, (struct sockaddr*) &info->client_addr,
+                            sizeof(struct sockaddr_in6));
+            check_if(check < 0, goto _CLEANUP,
+                     "AF_INET6 connect client addr failed");
 
             break;
 
@@ -447,7 +463,8 @@ static void* _listenDtlsServer(void* arg)
             }
         }
 
-        info = dtls_createConnInfo(bio, ssl, client_addr, server->local_addr, server->callback);
+        info = dtls_createConnInfo(bio, ssl, client_addr, server->local_addr,
+                                   server->callback);
         check_if(info == NULL, goto _END, "dtls_createConnInfo failed");
 
         check = pthread_create( &connThread, NULL, _handleDtlsConn, info);
@@ -503,7 +520,8 @@ int dtls_checkSslWrite(SSL* ssl, char* buffer, int len)
 
         case SSL_ERROR_SSL:
             derror("SSL write error: ");
-            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer), SSL_get_error(ssl, len));
+            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer),
+                   SSL_get_error(ssl, len));
             break;
 
         default:
@@ -526,14 +544,14 @@ int dtls_checkSslRead(SSL* ssl, char* buffer, int len)
             break;
 
         case SSL_ERROR_ZERO_RETURN:
-            // 沒資料可以讀了，算是正常的情況
             // dprint("no data to read");
             ret = DTLS_END;
             break;
 
         case SSL_ERROR_WANT_READ:
             /* Stop reading on socket timeout, otherwise try again */
-            if (BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP, 0, NULL))
+            if (BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP,
+                        0, NULL))
             {
                 derror("Timeout! No response received.");
             }
@@ -546,7 +564,8 @@ int dtls_checkSslRead(SSL* ssl, char* buffer, int len)
 
         case SSL_ERROR_SSL:
             derror("SSL read error: ");
-            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer), SSL_get_error(ssl, len));
+            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer),
+                   SSL_get_error(ssl, len));
             break;
 
         default:
@@ -557,7 +576,8 @@ int dtls_checkSslRead(SSL* ssl, char* buffer, int len)
     return ret;
 }
 
-dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr, myaddr local_addr, serverRecvFunc callback)
+dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
+                                  myaddr local_addr, serverRecvFunc callback)
 {
     dtlsConnInfo* info = NULL;
 
@@ -619,7 +639,8 @@ int dtls_stopServer(dtlsServer* server)
     return DTLS_OK;
 }
 
-int  dtls_initServer(const char* pLocalIp, const int localPort, serverRecvFunc callback, dtlsServer* server)
+int  dtls_initServer(const char* local_ip, const int local_port,
+                     serverRecvFunc callback, dtlsServer* server)
 {
     int check;
 
@@ -628,16 +649,16 @@ int  dtls_initServer(const char* pLocalIp, const int localPort, serverRecvFunc c
 
     memset(server, 0, sizeof(dtlsServer));
 
-    if (pLocalIp)
+    if (local_ip)
     {
-        check = _configAddr(pLocalIp, localPort, &server->local_addr);
+        check = _configAddr(local_ip, local_port, &server->local_addr);
         check_if(check != DTLS_OK, goto _ERROR, "_configAddr failed");
     }
     else
     {
         server->local_addr.s6.sin6_family = AF_INET6;
         server->local_addr.s6.sin6_addr   = in6addr_any;
-        server->local_addr.s6.sin6_port   = htons(localPort);
+        server->local_addr.s6.sin6_port   = htons(local_port);
 #ifdef HAVE_SIN6_LEN
         server->local_addr.s6.sin6_len = sizeof(struct sockaddr_in6);
 #endif
@@ -654,13 +675,15 @@ int  dtls_initServer(const char* pLocalIp, const int localPort, serverRecvFunc c
     SSL_CTX_set_cipher_list(server->ctx, "ALL:NULL:eNULL:aNULL");
     SSL_CTX_set_session_cache_mode(server->ctx, SSL_SESS_CACHE_OFF);
 
-    if (!SSL_CTX_use_certificate_file(server->ctx, DTLS_SERVER_PEM_PATH, SSL_FILETYPE_PEM))
+    if (!SSL_CTX_use_certificate_file(server->ctx, DTLS_SERVER_PEM_PATH,
+                                        SSL_FILETYPE_PEM))
     {
         derror("ERROR: no certificate found!");
         goto _ERROR;
     }
 
-    if (!SSL_CTX_use_PrivateKey_file(server->ctx, DTLS_SERVER_KEY_PATH, SSL_FILETYPE_PEM))
+    if (!SSL_CTX_use_PrivateKey_file(server->ctx, DTLS_SERVER_KEY_PATH,
+                                        SSL_FILETYPE_PEM))
     {
         derror("ERROR: no private key found!");
         goto _ERROR;
@@ -673,7 +696,8 @@ int  dtls_initServer(const char* pLocalIp, const int localPort, serverRecvFunc c
     }
 
     /* Client has to authenticate */
-    SSL_CTX_set_verify(server->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, _verifyDtlsCallback);
+    SSL_CTX_set_verify(server->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE,
+                       _verifyDtlsCallback);
     SSL_CTX_set_read_ahead(server->ctx, 1);
     SSL_CTX_set_cookie_generate_cb(server->ctx, _generateCookie);
     SSL_CTX_set_cookie_verify_cb(server->ctx, _verifyCookie);
@@ -682,20 +706,24 @@ int  dtls_initServer(const char* pLocalIp, const int localPort, serverRecvFunc c
     server->fd = socket(server->local_addr.ss.ss_family, SOCK_DGRAM, 0);
     check_if(server->fd < 0, goto _ERROR, "socket create failed");
 
-    check = setsockopt(server->fd, SOL_SOCKET, SO_REUSEADDR, (const void*) &on, (socklen_t) sizeof(on));
+    check = setsockopt(server->fd, SOL_SOCKET, SO_REUSEADDR, (const void*)&on,
+                       (socklen_t)sizeof(on));
     check_if(check < 0, goto _ERROR, "setsockopt reuse addr failed");
 
     if (server->local_addr.ss.ss_family == AF_INET)
     {
-        check = bind(server->fd, (const struct sockaddr *) &server->local_addr, sizeof(struct sockaddr_in));
+        check = bind(server->fd, (const struct sockaddr*)&server->local_addr,
+                     sizeof(struct sockaddr_in));
         check_if(check < 0, goto _ERROR, "bind AF_INET failed");
     }
     else
     {
-        check = setsockopt(server->fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&off, sizeof(off));
+        check = setsockopt(server->fd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off,
+                           sizeof(off));
         check_if(check < 0, goto _ERROR, "setsockopt ipv6 only failed");
 
-        check = bind(server->fd, (const struct sockaddr *) &server->local_addr, sizeof(struct sockaddr_in6));
+        check = bind(server->fd, (const struct sockaddr*)&server->local_addr,
+                     sizeof(struct sockaddr_in6));
         check_if(check < 0, goto _ERROR, "bind AF_INET6 failed");
     }
 
@@ -738,77 +766,87 @@ int dtls_uninitServer(dtlsServer* server)
     return DTLS_OK;
 }
 
-int dtls_initClient(const char* pRemoteIp, int remotePort, dtlsClient* pClient)
+int dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client)
 {
     int chk;
 
-    check_if(pClient == NULL, return DTLS_FAIL, "pClient is null");
-    check_if(pRemoteIp == NULL, return DTLS_FAIL, "pRemoteIp is null");
+    check_if(client == NULL, return DTLS_FAIL, "client is null");
+    check_if(remote_ip == NULL, return DTLS_FAIL, "remote_ip is null");
 
-    memset(pClient, 0, sizeof(dtlsClient));
+    memset(client, 0, sizeof(dtlsClient));
 
-    chk = _configAddr(pRemoteIp, remotePort, &(pClient->server_addr));
+    chk = _configAddr(remote_ip, remote_port, &(client->server_addr));
     check_if(chk != DTLS_OK, return chk, "_configAddr failed");
 
-    pClient->fd = socket(pClient->server_addr.ss.ss_family, SOCK_DGRAM, 0);
-    check_if(pClient->fd < 0, return DTLS_FAIL, "socket failed");
+    client->fd = socket(client->server_addr.ss.ss_family, SOCK_DGRAM, 0);
+    check_if(client->fd < 0, return DTLS_FAIL, "socket failed");
 
-    pClient->timeout.tv_sec  = DTLS_CLIENT_DEFAULT_TIMEOUT;
-    pClient->timeout.tv_usec = 0;
+    client->timeout.tv_sec  = DTLS_CLIENT_DEFAULT_TIMEOUT;
+    client->timeout.tv_usec = 0;
 
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
 
-    pClient->ctx = SSL_CTX_new(DTLSv1_client_method());
-    SSL_CTX_set_cipher_list(pClient->ctx, "eNULL:!MD5");
+    client->ctx = SSL_CTX_new(DTLSv1_client_method());
+    SSL_CTX_set_cipher_list(client->ctx, "eNULL:!MD5");
 
-    if (!SSL_CTX_use_certificate_file(pClient->ctx, DTLS_CLIENT_PEM_PATH, SSL_FILETYPE_PEM))
+    if (!SSL_CTX_use_certificate_file(client->ctx, DTLS_CLIENT_PEM_PATH,
+                                        SSL_FILETYPE_PEM))
     {
         derror("ERROR: no certificate found!");
         goto _ERROR;
     }
 
-    if (!SSL_CTX_use_PrivateKey_file(pClient->ctx, DTLS_CLIENT_KEY_PATH, SSL_FILETYPE_PEM))
+    if (!SSL_CTX_use_PrivateKey_file(client->ctx, DTLS_CLIENT_KEY_PATH,
+                                        SSL_FILETYPE_PEM))
     {
         derror("ERROR: no private key found!");
         goto _ERROR;
     }
 
-    if (!SSL_CTX_check_private_key(pClient->ctx))
+    if (!SSL_CTX_check_private_key(client->ctx))
     {
         derror("ERROR: invalid private key!");
         goto _ERROR;
     }
 
-    SSL_CTX_set_verify_depth(pClient->ctx, 2);
-    SSL_CTX_set_read_ahead(pClient->ctx, 1);
+    SSL_CTX_set_verify_depth(client->ctx, 2);
+    SSL_CTX_set_read_ahead(client->ctx, 1);
 
-    pClient->ssl = SSL_new(pClient->ctx);
+    client->ssl = SSL_new(client->ctx);
 
     /* Create BIO, connect and set to already connected */
-    pClient->bio = BIO_new_dgram(pClient->fd, BIO_CLOSE);
-    if (pClient->server_addr.ss.ss_family == AF_INET)
+    client->bio = BIO_new_dgram(client->fd, BIO_CLOSE);
+    if (client->server_addr.ss.ss_family == AF_INET)
     {
-        connect(pClient->fd, (struct sockaddr*) &pClient->server_addr, sizeof(struct sockaddr_in));
+        connect(client->fd, (struct sockaddr*)&client->server_addr,
+                sizeof(struct sockaddr_in));
     }
     else
     {
-        connect(pClient->fd, (struct sockaddr*) &pClient->server_addr, sizeof(struct sockaddr_in6));
+        connect(client->fd, (struct sockaddr*)&client->server_addr,
+                sizeof(struct sockaddr_in6));
     }
 
-    BIO_ctrl(pClient->bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &(pClient->server_addr.ss));
+    BIO_ctrl(client->bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0,
+             &(client->server_addr.ss));
 
-    SSL_set_bio(pClient->ssl, pClient->bio, pClient->bio);
+    SSL_set_bio(client->ssl, client->bio, client->bio);
 
-    if (SSL_connect(pClient->ssl) < 0)
+    if (SSL_connect(client->ssl) < 0)
     {
         derror("SSL_connect failed");
         goto _ERROR;
     }
 
-    BIO_ctrl(pClient->bio, BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &pClient->timeout);
+    BIO_ctrl(client->bio, BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0,
+             &client->timeout);
 
-    X509* pX509 = SSL_get_peer_certificate(pClient->ssl);
+    //////////////////////////////////////////////////////////////////
+    // SSL_get_peer_certificate will allocate a new memory for X509
+    // do remember to free it
+    //////////////////////////////////////////////////////////////////
+    X509* pX509 = SSL_get_peer_certificate(client->ssl);
     if (pX509)
     {
         printf("\n");
@@ -822,32 +860,38 @@ int dtls_initClient(const char* pRemoteIp, int remotePort, dtlsClient* pClient)
     return DTLS_OK;
 
 _ERROR:
-    dtls_uninitClient(pClient);
+    dtls_uninitClient(client);
     return DTLS_FAIL;
 
 }
 
-int dtls_uninitClient(dtlsClient* pClient)
+int dtls_uninitClient(dtlsClient* client)
 {
-    check_if(pClient == NULL, return DTLS_FAIL, "pClient is null");
+    check_if(client == NULL, return DTLS_FAIL, "client is null");
 
-    if (pClient->fd > 0)
+    if (client->fd > 0)
     {
-        close(pClient->fd);
+        close(client->fd);
     }
 
-    if (pClient->ssl)
+    /////////////////////////////////////////////////////////
+    // when you free ssl, bio will be free at the same time
+    /////////////////////////////////////////////////////////
+    if (client->ssl)
     {
-        SSL_free(pClient->ssl);
-        pClient->ssl = NULL;
+        SSL_free(client->ssl);
+        client->ssl = NULL;
     }
 
-    if (pClient->ctx)
+    if (client->ctx)
     {
-        SSL_CTX_free(pClient->ctx);
-        pClient->ctx = NULL;
+        SSL_CTX_free(client->ctx);
+        client->ctx = NULL;
     }
 
+    //////////////////////////////////////
+    // avoid some memory leakage problem
+    //////////////////////////////////////
     ERR_remove_state(0);
     ERR_free_strings();
     EVP_cleanup();
@@ -864,7 +908,8 @@ unsigned long dtls_idCallback(void)
 
 int dtls_initSystem(void)
 {
-    _mutex_buf = (pthread_mutex_t*)calloc(sizeof(pthread_mutex_t), CRYPTO_num_locks());
+    _mutex_buf = (pthread_mutex_t*)calloc(sizeof(pthread_mutex_t),
+                                          CRYPTO_num_locks());
     check_if(_mutex_buf == NULL, return DTLS_FAIL, "calloc failed");
 
     int i;

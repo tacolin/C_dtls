@@ -89,18 +89,21 @@ static inline dtls_isAlive(SSL* ssl)
 int dtls_checkSslWrite(SSL* ssl, char* data, int len);
 int dtls_checkSslRead(SSL* ssl, char* data, int len);
 
-dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr, myaddr local_addr, serverRecvFunc callback);
+dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
+                                  myaddr local_addr, serverRecvFunc callback);
 void dtls_destroyConnInfo(dtlsConnInfo* info);
 
 unsigned long dtls_idCallback(void);
 
-int  dtls_initServer(const char* local_ip, const int local_port, serverRecvFunc callback, dtlsServer* server);
+int  dtls_initServer(const char* local_ip, const int local_port,
+                     serverRecvFunc callback, dtlsServer* server);
 int  dtls_uninitServer(dtlsServer* server);
 
 int dtls_startServer(dtlsServer* server);
 int dtls_stopServer(dtlsServer* server);
 
-int  dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client);
+int  dtls_initClient(const char* remote_ip, int remote_port,
+                     dtlsClient* client);
 int  dtls_uninitClient(dtlsClient* client);
 
 int  dtls_initSystem(void);
