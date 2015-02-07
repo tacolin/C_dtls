@@ -469,6 +469,9 @@ static void* _listenDtlsServer(void* arg)
 
         check = pthread_create( &connThread, NULL, _handleDtlsConn, info);
         check_if(check != 0, goto _END, "pthread_create failed");
+
+        ssl = NULL;
+        bio = NULL;
     }
 
 _END:
