@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
         dtlsServer server = {};
         int check;
 
-        check = dtls_initServer(NULL, _port, _recvCallback, &server);
+        check = dtls_initServer(NULL, _port, _recvCallback, NULL, 0, &server);
         check_if(check != DTLS_OK, return, "dtls_initServer failed");
 
         dtls_startServer(&server);

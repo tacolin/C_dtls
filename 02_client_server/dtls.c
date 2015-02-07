@@ -643,8 +643,9 @@ int dtls_stopServer(dtlsServer* server)
     return DTLS_OK;
 }
 
-int  dtls_initServer(const char* local_ip, const int local_port,
-                     serverRecvFunc callback, dtlsServer* server)
+int dtls_initServer(const char* local_ip, const int local_port,
+                     serverRecvFunc callback, void* conn_arg,
+                     int conn_arg_len, dtlsServer* server)
 {
     int check;
 
@@ -734,6 +735,12 @@ int  dtls_initServer(const char* local_ip, const int local_port,
     server->is_running = FALSE;
     server->callback = callback;
 
+    if (conn_arg && conn_arg_len > 0)
+    {
+        server->conn_arg = calloc(conn_arg_len, 1);
+        memcpy(server->conn_arg, conn_arg, conn_arg_len);
+    }
+
     dprint("ok");
 
     return DTLS_OK;
@@ -759,6 +766,12 @@ int dtls_uninitServer(dtlsServer* server)
     {
         SSL_CTX_free(server->ctx);
         server->ctx = NULL;
+    }
+
+    if (server->conn_arg)
+    {
+        free(server->conn_arg);
+        server->conn_arg = NULL;
     }
 
     ERR_free_strings();

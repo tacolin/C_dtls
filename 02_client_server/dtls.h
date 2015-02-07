@@ -63,6 +63,9 @@ typedef struct dtlsServer
 
     serverRecvFunc callback;
 
+    void* conn_arg;
+    int   conn_arg_len;
+
 } dtlsServer;
 
 typedef struct dtlsConnInfo
@@ -76,6 +79,8 @@ typedef struct dtlsConnInfo
     struct timeval timeout;
 
     serverRecvFunc callback;
+
+    void* conn_arg;
 
 } dtlsConnInfo;
 
@@ -96,7 +101,8 @@ void dtls_destroyConnInfo(dtlsConnInfo* info);
 unsigned long dtls_idCallback(void);
 
 int  dtls_initServer(const char* local_ip, const int local_port,
-                     serverRecvFunc callback, dtlsServer* server);
+                     serverRecvFunc callback, void* conn_arg,
+                     int conn_arg_len, dtlsServer* server);
 int  dtls_uninitServer(dtlsServer* server);
 
 int dtls_startServer(dtlsServer* server);
