@@ -10,7 +10,7 @@ static int _is_server_running = 1;
 ////////////////////////////////////////////////////////////////////////////////
 
 static void _client(char* remote_ip, int remote_port);
-static void _recvCallback(SSL* ssl);
+static void _recvCallback(void* conn_info);
 
 static void _sigIntHandler(int sigNum)
 {
@@ -61,17 +61,21 @@ int main(int argc, char *argv[])
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static void _recvCallback(SSL* ssl)
+static void _recvCallback(void* conn_info)
 {
     int  i;
     char buffer[BUFFER_SIZE] = {0};
     int  readlen;
     int  writelen;
     int  check;
+    SSL* ssl;
+    dtlsConnInfo* info = (dtlsConnInfo*)conn_info;
 
+    check_if(info == NULL, goto _END, "info is null");
+
+    ssl = info->ssl;
     check_if(ssl == NULL, goto _END, "ssl is null");
 
-    // for (i=0; (i<200) && dtls_isAlive(ssl); i++)
     while (dtls_isAlive(ssl))
     {
         readlen = SSL_read(ssl, buffer, BUFFER_SIZE);

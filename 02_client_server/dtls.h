@@ -50,7 +50,7 @@ typedef struct dtlsClient
 
 } dtlsClient;
 
-typedef void (*serverRecvFunc)(SSL* ssl);
+typedef void (*serverRecvFunc)(void* conn_info);
 
 typedef struct dtlsServer
 {
