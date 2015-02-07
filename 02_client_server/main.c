@@ -51,14 +51,13 @@ int main(int argc, char *argv[])
         dtlsServer server = {};
         int check;
 
-        connArg un_client = _createUnixSocketClient("tacolin");
-        check_if(un_client.unfd < 0, return, "_createUnixSocketClient failed");
+        char* path = "tacolin";
 
-        check = dtls_initServer(NULL, _port, _recvCallback, &un_client, sizeof(connArg), &server);
-        check_if(check != DTLS_OK, close(un_client.unfd); return, "dtls_initServer failed");
+        check = dtls_initServer(NULL, _port, _recvCallback, path, strlen(path)+1, &server);
+        check_if(check != DTLS_OK, return, "dtls_initServer failed");
 
-        connArg un_server = _createUnixSocketServer("tacolin");
-        check_if(un_client.unfd < 0, close(un_client.unfd); return, "_createUnixSocketClient failed");
+        connArg un_server = _createUnixSocketServer(path);
+        check_if(un_server.unfd < 0, return, "_createUnixSocketClient failed");
 
         fd_set readset;
         int   select_ret;
@@ -110,10 +109,9 @@ int main(int argc, char *argv[])
         dtls_stopServer(&server);
         dtls_uninitServer(&server);
 
-        close(un_client.unfd);
         close(un_server.unfd);
 
-        unlink("tacolin");
+        unlink(path);
     }
 
     dtls_uninitSystem();
@@ -173,15 +171,19 @@ static void _recvCallback(void* conn_info)
     int  check;
     SSL* ssl;
     dtlsConnInfo* info = (dtlsConnInfo*)conn_info;
-    connArg* arg;
+    char* path;
+    connArg arg = {.unfd = -1};
 
     check_if(info == NULL, goto _END, "info is null");
 
     ssl = info->ssl;
     check_if(ssl == NULL, goto _END, "ssl is null");
 
-    arg = info->conn_arg;
-    check_if(arg == NULL, goto _END, "arg is null");
+    path = info->conn_arg;
+    check_if(path == NULL, goto _END, "conn_arg is null");
+
+    arg = _createUnixSocketClient(path);
+    check_if(arg.unfd < 0, goto _END, "_createUnixSocketClient failed");
 
     while (dtls_isAlive(ssl))
     {
@@ -200,7 +202,7 @@ static void _recvCallback(void* conn_info)
 
         dprint("read : %s", buffer);
 
-        sendlen = sendto(arg->unfd, buffer, readlen, 0, (struct sockaddr*)&arg->unaddr,
+        sendlen = sendto(arg.unfd, buffer, readlen, 0, (struct sockaddr*)&arg.unaddr,
                          sizeof(struct sockaddr_un));
         if (sendlen <= 0)
         {
@@ -210,6 +212,10 @@ static void _recvCallback(void* conn_info)
     }
 
 _END:
+    if (arg.unfd > 0)
+    {
+        close(arg.unfd);
+    }
     return;
 }
 
