@@ -5,12 +5,12 @@
 #include <sys/un.h>
 #include <sys/select.h>
 
-typedef struct connArg
+typedef struct unConnArg
 {
     int unfd;
     struct sockaddr_un unaddr;
 
-} connArg;
+} unConnArg;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -28,8 +28,7 @@ static void _sigIntHandler(int sigNum)
     dprint("stop main() while loop");
 }
 
-static connArg _createUnixSocketClient(char* path);
-static connArg _createUnixSocketServer(char* path);
+static unConnArg _createUnixSocketServer(char* path);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -56,7 +55,7 @@ int main(int argc, char *argv[])
         check = dtls_initServer(NULL, _port, _recvCallback, path, strlen(path)+1, &server);
         check_if(check != DTLS_OK, return, "dtls_initServer failed");
 
-        connArg un_server = _createUnixSocketServer(path);
+        unConnArg un_server = _createUnixSocketServer(path);
         check_if(un_server.unfd < 0, return, "_createUnixSocketClient failed");
 
         fd_set readset;
@@ -120,7 +119,7 @@ int main(int argc, char *argv[])
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static connArg _createUnixSocketClient(char* path)
+static unConnArg _createUnixSocketClient(char* path)
 {
     int fd = socket(AF_UNIX, SOCK_DGRAM, 0);
     check_if(fd < 0, goto _ERROR, "socket failed");
@@ -128,17 +127,17 @@ static connArg _createUnixSocketClient(char* path)
     struct sockaddr_un server = {.sun_family = AF_UNIX};
     strncpy(server.sun_path, path, sizeof(server.sun_path) - 1);
 
-    return (connArg){.unfd = fd, .unaddr = server};
+    return (unConnArg){.unfd = fd, .unaddr = server};
 
 _ERROR:
     if (fd > 0)
     {
         close(fd);
     }
-    return (connArg){.unfd = -1};
+    return (unConnArg){.unfd = -1};
 }
 
-static connArg _createUnixSocketServer(char* path)
+static unConnArg _createUnixSocketServer(char* path)
 {
     unlink(path);
 
@@ -152,14 +151,14 @@ static connArg _createUnixSocketServer(char* path)
     check = bind(fd, (struct sockaddr*)&local, sizeof(struct sockaddr_un));
     check_if(check < 0, goto _ERROR, "bind failed");
 
-    return (connArg){.unfd = fd, .unaddr = local};
+    return (unConnArg){.unfd = fd, .unaddr = local};
 
 _ERROR:
     if (fd > 0)
     {
         close(fd);
     }
-    return (connArg){.unfd = -1};
+    return (unConnArg){.unfd = -1};
 }
 
 static void _recvCallback(void* conn_info)
@@ -172,7 +171,7 @@ static void _recvCallback(void* conn_info)
     SSL* ssl;
     dtlsConnInfo* info = (dtlsConnInfo*)conn_info;
     char* path;
-    connArg arg = {.unfd = -1};
+    unConnArg arg = {.unfd = -1};
 
     check_if(info == NULL, goto _END, "info is null");
 
