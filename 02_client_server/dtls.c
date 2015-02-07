@@ -600,6 +600,12 @@ dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
     info->timeout.tv_usec = 0;
     info->callback        = server->callback;
 
+    if (server->conn_arg && server->conn_arg_len > 0)
+    {
+        info->conn_arg = calloc(server->conn_arg_len, 1);
+        memcpy(info->conn_arg, server->conn_arg, server->conn_arg_len);
+    }
+
     return info;
 }
 
@@ -611,6 +617,12 @@ void dtls_destroyConnInfo(dtlsConnInfo* info)
     {
         SSL_free(info->ssl);
         info->ssl = NULL;
+    }
+
+    if (info->conn_arg)
+    {
+        free(info->conn_arg);
+        info->conn_arg = NULL;
     }
 
     free(info);
@@ -737,7 +749,8 @@ int dtls_initServer(const char* local_ip, const int local_port,
 
     if (conn_arg && conn_arg_len > 0)
     {
-        server->conn_arg = calloc(conn_arg_len, 1);
+        server->conn_arg     = calloc(conn_arg_len, 1);
+        server->conn_arg_len = conn_arg_len;
         memcpy(server->conn_arg, conn_arg, conn_arg_len);
     }
 
