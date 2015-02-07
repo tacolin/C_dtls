@@ -463,8 +463,7 @@ static void* _listenDtlsServer(void* arg)
             }
         }
 
-        info = dtls_createConnInfo(bio, ssl, client_addr, server->local_addr,
-                                   server->callback);
+        info = dtls_createConnInfo(bio, ssl, client_addr, server);
         check_if(info == NULL, goto _END, "dtls_createConnInfo failed");
 
         check = pthread_create( &connThread, NULL, _handleDtlsConn, info);
@@ -580,24 +579,26 @@ int dtls_checkSslRead(SSL* ssl, char* buffer, int len)
 }
 
 dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
-                                  myaddr local_addr, serverRecvFunc callback)
+                                  dtlsServer *server)
 {
     dtlsConnInfo* info = NULL;
 
     check_if(bio == NULL, return NULL, "bio is null");
     check_if(ssl == NULL, return NULL, "ssl is null");
-    check_if(callback == NULL, return NULL, "callback is null");
+    check_if(server == NULL, return NULL, "server is null");
+    check_if(server->callback == NULL, return NULL, "server->callback is null");
 
-    info       = (dtlsConnInfo*)calloc(sizeof(dtlsConnInfo), 1);
+    info      = (dtlsConnInfo*)calloc(sizeof(dtlsConnInfo), 1);
     info->bio = bio;
     info->ssl = ssl;
 
     memcpy(&info->client_addr, &client_addr, sizeof(struct sockaddr_storage));
-    memcpy(&info->local_addr,  &local_addr,  sizeof(struct sockaddr_storage));
+    memcpy(&info->local_addr,  &server->local_addr,
+           sizeof(struct sockaddr_storage));
 
     info->timeout.tv_sec  = DTLS_SERVER_DEFAULT_TIMEOUT;
     info->timeout.tv_usec = 0;
-    info->callback        = callback;
+    info->callback        = server->callback;
 
     return info;
 }

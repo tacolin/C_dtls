@@ -90,7 +90,7 @@ int dtls_checkSslWrite(SSL* ssl, char* data, int len);
 int dtls_checkSslRead(SSL* ssl, char* data, int len);
 
 dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
-                                  myaddr local_addr, serverRecvFunc callback);
+                                  dtlsServer *server);
 void dtls_destroyConnInfo(dtlsConnInfo* info);
 
 unsigned long dtls_idCallback(void);
