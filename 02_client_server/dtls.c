@@ -509,10 +509,12 @@ int dtls_checkSslWrite(SSL* ssl, char* buffer, int len)
 
         case SSL_ERROR_WANT_WRITE:
             /* Just try again later */
+            derror("SSL_ERROR_WANT_WRITE");
             break;
 
         case SSL_ERROR_WANT_READ:
             /* continue with reading */
+            derror("SSL_ERROR_WANT_READ");
             break;
 
         case SSL_ERROR_SYSCALL:
