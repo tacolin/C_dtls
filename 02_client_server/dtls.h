@@ -88,7 +88,9 @@ typedef struct dtlsConnInfo
 
 static inline dtls_isAlive(SSL* ssl)
 {
-    return !(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN);
+    return !(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN
+             || SSL_get_shutdown(ssl) & SSL_SENT_SHUTDOWN);
+    // return !(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN);
 }
 
 int dtls_checkSslWrite(SSL* ssl, char* data, int len);
