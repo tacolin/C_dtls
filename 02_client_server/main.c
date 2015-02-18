@@ -228,27 +228,25 @@ static void _client(char* remote_ip, int remote_port)
     check = dtls_initClient(remote_ip, remote_port, &client);
     check_if(check != DTLS_OK, return, "dtls_initClient failed");
 
+    check = dtls_startClient(&client);
+    check_if(check != DTLS_OK, return, "dtls_startClient failed");
+
     char buffer[BUFFER_SIZE] = {};
-    int  readlen;
-    int  writelen;
-    int  reading_flag = 0;
+    int  writelen = 0;
     int  i;
 
-    for (i=0; (i<200) && dtls_isAlive(client.ssl); i++)
+    for (i=0; (i<200) && (writelen >= 0); i++)
     {
         sprintf(buffer, "message No. %d", i);
-        writelen = SSL_write(client.ssl, buffer, strlen(buffer)+1);
-        if (dtls_checkSslWrite(client.ssl, buffer, writelen) != DTLS_OK)
+        writelen = dtls_sendData(&client, buffer, strlen(buffer)+1);
+        if (writelen > 0)
         {
-            derror("dtls_checkSslWrite failed");
-            goto _END;
+            dprint("send : %s", buffer);
         }
-
-        dprint("send : %s", buffer);
     }
 
 _END:
-    SSL_shutdown(client.ssl);
+    dtls_stopClient(&client);
     dtls_uninitClient(&client);
     dprint("client closed.");
     return;

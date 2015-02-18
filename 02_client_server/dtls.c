@@ -933,6 +933,38 @@ int dtls_uninitClient(dtlsClient* client)
     return DTLS_OK;
 }
 
+int dtls_startClient(dtlsClient* client)
+{
+    check_if(client == NULL, return DTLS_FAIL, "client is null");
+    client->is_running = TRUE;
+    return DTLS_OK;
+}
+
+int dtls_stopClient(dtlsClient* client)
+{
+    check_if(client == NULL, return DTLS_FAIL, "client is null");
+    SSL_shutdown(client->ssl);
+    client->is_running = FALSE;
+    return DTLS_OK;
+}
+
+int dtls_sendData(dtlsClient* client, void* data, int data_len)
+{
+    check_if(client == NULL, return -1, "client is null");
+    check_if(data == NULL, return -1, "data is null");
+    check_if(data_len <= 0, return -1, "data_len = %d", data_len);
+    check_if(client->is_running == FALSE, return -1, 
+            "client is not started yet");
+    check_if(dtls_isAlive(client->ssl) == FALSE, return -1, 
+            "client's ssl is not alive");
+    
+    int writeLen = SSL_write(client->ssl, data, data_len);
+    int check    = dtls_checkSslWrite(client->ssl, data, writeLen);
+    check_if(check != DTLS_OK, return -1, "dtls_checkSslWrite failed");
+
+    return writeLen;
+}
+
 unsigned long dtls_idCallback(void)
 {
     return (unsigned long)pthread_self();

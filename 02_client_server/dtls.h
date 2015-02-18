@@ -48,6 +48,8 @@ typedef struct dtlsClient
     myaddr server_addr;
     struct timeval timeout;
 
+    int is_running;
+
 } dtlsClient;
 
 typedef void (*serverRecvFunc)(void* conn_info);
@@ -113,6 +115,11 @@ int dtls_stopServer(dtlsServer* server);
 int  dtls_initClient(const char* remote_ip, int remote_port,
                      dtlsClient* client);
 int  dtls_uninitClient(dtlsClient* client);
+
+int  dtls_startCient(dtlsClient* client);
+int  dtls_stopClient(dtlsClient* client);
+
+int  dtls_sendData(dtlsClient* client, void* data, int data_len);
 
 int  dtls_initSystem(void);
 void dtls_uninitSystem(void);
