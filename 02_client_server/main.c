@@ -235,13 +235,18 @@ static void _client(char* remote_ip, int remote_port)
     int  writelen = 0;
     int  i;
 
-    for (i=0; (i<200) && (writelen >= 0); i++)
+    for (i=0; i<200; i++)
     {
         sprintf(buffer, "message No. %d", i);
         writelen = dtls_sendData(&client, buffer, strlen(buffer)+1);
         if (writelen > 0)
         {
             dprint("send : %s", buffer);
+        }
+        else
+        {
+            derror("send failed");
+            goto _END;
         }
     }
 

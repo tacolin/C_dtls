@@ -810,11 +810,54 @@ int dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client)
     chk = _configAddr(remote_ip, remote_port, &(client->server_addr));
     check_if(chk != DTLS_OK, return chk, "_configAddr failed");
 
-    client->fd = socket(client->server_addr.ss.ss_family, SOCK_DGRAM, 0);
-    check_if(client->fd < 0, return DTLS_FAIL, "socket failed");
-
     client->timeout.tv_sec  = DTLS_CLIENT_DEFAULT_TIMEOUT;
     client->timeout.tv_usec = 0;
+
+    return DTLS_OK;
+}
+
+int dtls_uninitClient(dtlsClient* client)
+{
+    check_if(client == NULL, return DTLS_FAIL, "client is null");
+
+    if (client->fd > 0)
+    {
+        close(client->fd);
+    }
+
+    /////////////////////////////////////////////////////////
+    // when you free ssl, bio will be free at the same time
+    /////////////////////////////////////////////////////////
+    if (client->ssl)
+    {
+        SSL_free(client->ssl);
+        client->ssl = NULL;
+    }
+
+    if (client->ctx)
+    {
+        SSL_CTX_free(client->ctx);
+        client->ctx = NULL;
+    }
+
+    //////////////////////////////////////
+    // avoid some memory leakage problem
+    //////////////////////////////////////
+    ERR_remove_state(0);
+    ERR_free_strings();
+    EVP_cleanup();
+
+    dprint("ok");
+
+    return DTLS_OK;
+}
+
+int dtls_startClient(dtlsClient* client)
+{
+    check_if(client == NULL, return DTLS_FAIL, "client is null");
+
+    client->fd = socket(client->server_addr.ss.ss_family, SOCK_DGRAM, 0);
+    check_if(client->fd < 0, return DTLS_FAIL, "socket failed");
 
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
@@ -889,62 +932,21 @@ int dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client)
         X509_free(pX509);
     }
 
+    client->is_running = TRUE;
     return DTLS_OK;
 
 _ERROR:
     dtls_uninitClient(client);
     return DTLS_FAIL;
-
-}
-
-int dtls_uninitClient(dtlsClient* client)
-{
-    check_if(client == NULL, return DTLS_FAIL, "client is null");
-
-    if (client->fd > 0)
-    {
-        close(client->fd);
-    }
-
-    /////////////////////////////////////////////////////////
-    // when you free ssl, bio will be free at the same time
-    /////////////////////////////////////////////////////////
-    if (client->ssl)
-    {
-        SSL_free(client->ssl);
-        client->ssl = NULL;
-    }
-
-    if (client->ctx)
-    {
-        SSL_CTX_free(client->ctx);
-        client->ctx = NULL;
-    }
-
-    //////////////////////////////////////
-    // avoid some memory leakage problem
-    //////////////////////////////////////
-    ERR_remove_state(0);
-    ERR_free_strings();
-    EVP_cleanup();
-
-    dprint("ok");
-
-    return DTLS_OK;
-}
-
-int dtls_startClient(dtlsClient* client)
-{
-    check_if(client == NULL, return DTLS_FAIL, "client is null");
-    client->is_running = TRUE;
-    return DTLS_OK;
 }
 
 int dtls_stopClient(dtlsClient* client)
 {
     check_if(client == NULL, return DTLS_FAIL, "client is null");
+
     SSL_shutdown(client->ssl);
     client->is_running = FALSE;
+
     return DTLS_OK;
 }
 
