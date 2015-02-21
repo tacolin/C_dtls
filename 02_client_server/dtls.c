@@ -816,7 +816,7 @@ int dtls_stopServer(dtlsServer* server)
     pthread_join(server->listen_thread, NULL);
 
     int i;
-    for (i=0; i<10 && server->conn_list; i++)
+    for (i=0; i<DTLS_SERVER_DEFAULT_TIMEOUT && server->conn_list; i++)
     {
         dprint("wait for all conn thread over ... %d secs", (i+1));
         sleep(1);

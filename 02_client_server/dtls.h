@@ -21,7 +21,7 @@
 
 #define DTLS_CLIENT_PEM_PATH "certs/client-cert.pem"
 #define DTLS_CLIENT_KEY_PATH "certs/client-key.pem"
-#define DTLS_CLIENT_DEFAULT_TIMEOUT 10
+#define DTLS_CLIENT_DEFAULT_TIMEOUT 5
 
 #define DTLS_SERVER_PEM_PATH "certs/server-cert.pem"
 #define DTLS_SERVER_KEY_PATH "certs/server-key.pem"
