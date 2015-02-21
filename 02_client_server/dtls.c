@@ -10,6 +10,249 @@ static pthread_mutex_t* _mutex_buf       = NULL;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+static void _showSocketError(void)
+{
+    switch (errno)
+    {
+        case EINTR:
+            /* Interrupted system call.
+             * Just ignore.
+             */
+            derror("Interrupted system call!");
+            break;
+
+        case EBADF:
+            /* Invalid socket.
+             * Must close connection.
+             */
+            derror("Invalid socket!");
+            break;
+#ifdef EHOSTDOWN
+        case EHOSTDOWN:
+            /* Host is down.
+             * Just ignore, might be an attacker
+             * sending fake ICMP messages.
+             */
+            derror("Host is down!");
+            break;
+#endif
+#ifdef ECONNRESET
+        case ECONNRESET:
+            /* Connection reset by peer.
+             * Just ignore, might be an attacker
+             * sending fake ICMP messages.
+             */
+            derror("Connection reset by peer!");
+            break;
+#endif
+        case ENOMEM:
+            /* Out of memory.
+             * Must close connection.
+             */
+            derror("Out of memory!");
+            break;
+        case EACCES:
+            /* Permission denied.
+             * Just ignore, we might be blocked
+             * by some firewall policy. Try again
+             * and hope for the best.
+             */
+            derror("Permission denied!");
+            break;
+        default:
+            /* Something unexpected happened */
+            derror("Unexpected error! (errno = %d)", errno);
+            break;
+    }
+
+    return;
+}
+
+static int _checkSslWrite(SSL* ssl, char* buffer, int len)
+{
+    int ret = DTLS_FAIL;
+
+    switch (SSL_get_error(ssl, len))
+    {
+        case SSL_ERROR_NONE:
+            // dprint("wrote %d bytes", len);
+            ret = DTLS_OK;
+            break;
+
+        case SSL_ERROR_WANT_WRITE:
+            /* Just try again later */
+            derror("SSL_ERROR_WANT_WRITE");
+            break;
+
+        case SSL_ERROR_WANT_READ:
+            /* continue with reading */
+            derror("SSL_ERROR_WANT_READ");
+            break;
+
+        case SSL_ERROR_SYSCALL:
+            derror("Socket write error: ");
+            _showSocketError();
+            break;
+
+        case SSL_ERROR_SSL:
+            derror("SSL write error: ");
+            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer),
+                   SSL_get_error(ssl, len));
+            break;
+
+        default:
+            derror("Unexpected error while writing!");
+            break;
+    }
+
+    return ret;
+}
+
+static int _checkSslRead(SSL* ssl, char* buffer, int len)
+{
+    int ret = DTLS_FAIL;
+
+    switch (SSL_get_error(ssl, len))
+    {
+        case SSL_ERROR_NONE:
+            // dprint("read %d bytes", (int) len);
+            ret = DTLS_OK;
+            break;
+
+        case SSL_ERROR_ZERO_RETURN:
+            // dprint("no data to read");
+            ret = DTLS_END;
+            break;
+
+        case SSL_ERROR_WANT_READ:
+            /* Stop reading on socket timeout, otherwise try again */
+            if (BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP,
+                        0, NULL))
+            {
+                derror("Timeout! No response received.");
+            }
+            break;
+
+        case SSL_ERROR_SYSCALL:
+            derror("Socket read error: ");
+            _showSocketError();
+            break;
+
+        case SSL_ERROR_SSL:
+            derror("SSL read error: ");
+            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer),
+                   SSL_get_error(ssl, len));
+            break;
+
+        default:
+            derror("Unexpected error while reading!\n");
+            break;
+    }
+
+    return ret;
+}
+
+static int _saveConnInfo(dtlsServer* server, dtlsConnInfo* info)
+{
+    check_if(server == NULL, return DTLS_FAIL, "server is null");
+    check_if(info == NULL, return DTLS_FAIL, "info is null");
+
+    info->next         = server->conn_list;
+    server->conn_list = info;
+
+    return DTLS_OK;
+}
+
+static void _destroyConnInfo(dtlsConnInfo* info)
+{
+    dtlsServer* server = NULL;
+    dtlsConnInfo* curr = NULL;
+    dtlsConnInfo* prev = NULL;
+
+    check_if(info == NULL, return, "info is null");
+
+    server = (dtlsServer*)info->server;
+
+    curr = server->conn_list;
+    while (curr)
+    {
+        if (curr == info)
+        {
+            if (prev)
+            {
+                prev->next = curr->next;
+            }
+            else
+            {
+                server->conn_list = NULL;
+            }
+
+            curr->next = NULL;
+            dprint("dtlsConnInfo found, remove from list");
+            break;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+
+    if (info->ssl)
+    {
+        SSL_free(info->ssl);
+        info->ssl = NULL;
+    }
+
+    pthread_join(info->conn_thread, NULL);
+    free(info);
+
+    dprint("over");
+    return;
+}
+
+static dtlsConnInfo* _createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
+                                     dtlsServer *server)
+{
+    dtlsConnInfo* info = NULL;
+    int check;
+
+    check_if(bio == NULL, return NULL, "bio is null");
+    check_if(ssl == NULL, return NULL, "ssl is null");
+    check_if(server == NULL, return NULL, "server is null");
+
+    info      = (dtlsConnInfo*)calloc(sizeof(dtlsConnInfo), 1);
+    info->bio = bio;
+    info->ssl = ssl;
+
+    memcpy(&info->client_addr, &client_addr, sizeof(struct sockaddr_storage));
+    memcpy(&info->local_addr,  &server->local_addr,
+           sizeof(struct sockaddr_storage));
+
+    info->timeout.tv_sec  = DTLS_SERVER_DEFAULT_TIMEOUT;
+    info->timeout.tv_usec = 0;
+
+    info->server = server;
+
+    check = _saveConnInfo(server, info);
+    check_if(check != DTLS_OK, goto _ERROR, "_saveConnInfo failed");
+
+    return info;
+
+_ERROR:
+    _destroyConnInfo(info);
+    return NULL;
+}
+
+static int _isDtlsAlive(SSL* ssl)
+{
+    return !(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN
+             || SSL_get_shutdown(ssl) & SSL_SENT_SHUTDOWN);
+    // return !(SSL_get_shutdown(ssl) & SSL_RECEIVED_SHUTDOWN);
+}
+
+static unsigned long _dtlsIdCallback(void)
+{
+    return (unsigned long)pthread_self();
+}
+
 static void _sslLockFunc(int mode, int n, const char *file, int line)
 {
     if (mode & CRYPTO_LOCK)
@@ -230,64 +473,6 @@ static int _verifyDtlsCallback(int ok, X509_STORE_CTX *ctx)
     return 1;
 }
 
-static void _showSocketError(void)
-{
-    switch (errno)
-    {
-        case EINTR:
-            /* Interrupted system call.
-             * Just ignore.
-             */
-            derror("Interrupted system call!");
-            break;
-
-        case EBADF:
-            /* Invalid socket.
-             * Must close connection.
-             */
-            derror("Invalid socket!");
-            break;
-#ifdef EHOSTDOWN
-        case EHOSTDOWN:
-            /* Host is down.
-             * Just ignore, might be an attacker
-             * sending fake ICMP messages.
-             */
-            derror("Host is down!");
-            break;
-#endif
-#ifdef ECONNRESET
-        case ECONNRESET:
-            /* Connection reset by peer.
-             * Just ignore, might be an attacker
-             * sending fake ICMP messages.
-             */
-            derror("Connection reset by peer!");
-            break;
-#endif
-        case ENOMEM:
-            /* Out of memory.
-             * Must close connection.
-             */
-            derror("Out of memory!");
-            break;
-        case EACCES:
-            /* Permission denied.
-             * Just ignore, we might be blocked
-             * by some firewall policy. Try again
-             * and hope for the best.
-             */
-            derror("Permission denied!");
-            break;
-        default:
-            /* Something unexpected happened */
-            derror("Unexpected error! (errno = %d)", errno);
-            break;
-    }
-
-    return;
-}
-
 int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
 {
     int check;
@@ -335,6 +520,56 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
     return DTLS_OK;
 
 }
+
+static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
+{
+    int  i;
+    char buffer[BUFFER_SIZE] = {0};
+    int  readlen;
+    int  sendlen;
+    int  check;
+    SSL* ssl;
+    dtlsServer* server;
+
+    check_if(info == NULL, goto _END, "info is null");
+
+    ssl = info->ssl;
+    check_if(ssl == NULL, goto _END, "ssl is null");
+
+    server = (dtlsServer*)info->server;
+    check_if(server == NULL, goto _END, "info->server is null");
+
+    while (_isDtlsAlive(ssl))
+    {
+        readlen = SSL_read(ssl, buffer, BUFFER_SIZE);
+        check = _checkSslRead(ssl, buffer, readlen);
+        if (check == DTLS_FAIL)
+        {
+            derror("_checkSslRead failed");
+            goto _END;
+        }
+        else if (check == DTLS_END)
+        {
+            dprint("dtls end");
+            goto _END;
+        }
+
+        dprint("read : %s", buffer);
+
+        sendlen = sendto(server->un_client_fd, buffer, readlen, 0, 
+                         (struct sockaddr*)&server->un_client_addr,
+                         sizeof(struct sockaddr_un));
+        if (sendlen <= 0)
+        {
+            derror("send to unix socket failed");
+            goto _END;
+        }
+    }
+
+_END:
+    return;
+}
+
 
 static void* _handleDtlsConn(void *arg)
 {
@@ -408,14 +643,14 @@ static void* _handleDtlsConn(void *arg)
     ///////////////////////////////////////////////////////////////////////////
     // New Socket Reception
     ///////////////////////////////////////////////////////////////////////////
-    info->callback(info);
+    _transferDataToUnixSocketServer(info);
 
 _CLEANUP:
     SSL_shutdown(info->ssl);
     dprint("shutdown SSL");
 
-    dtls_destroyConnInfo(info);
-    dprint("Thread %lx: done, connection closed.", dtls_idCallback());
+    _destroyConnInfo(info);
+    dprint("Thread %lx: done, connection closed.", _dtlsIdCallback());
 
     ERR_remove_state(0);
     pthread_exit(0);
@@ -423,23 +658,24 @@ _CLEANUP:
 
 static void* _listenDtlsServer(void* arg)
 {
-    check_if(arg == NULL, goto _END, "arg is null");
-
-    dtlsServer     *server = (dtlsServer*)arg;
+    dtlsServer*    server      = (dtlsServer*)arg;
     myaddr         client_addr = {};
-    BIO*           bio       = NULL;
-    SSL*           ssl       = NULL;
-    struct timeval timeout    = {};
-    dtlsConnInfo*  info      = NULL;
-    pthread_t      connThread;
+    BIO*           bio         = NULL;
+    SSL*           ssl         = NULL;
+    struct timeval timeout     = {};
+    dtlsConnInfo*  info        = NULL;
     int            check;
 
-    while (server->is_running)
+    check_if(arg == NULL, goto _END, "arg is null");
+
+    while (server->is_started)
     {
+        info = NULL;
+
         memset(&client_addr, 0, sizeof(struct sockaddr_storage));
 
         /* Create BIO */
-        bio = BIO_new_dgram(server->fd, BIO_NOCLOSE);
+        bio = BIO_new_dgram(server->dtls_fd, BIO_NOCLOSE);
         check_if(bio == NULL, goto _END, "BIO_new_dgram failed");
 
         /* Set and activate timeouts */
@@ -456,17 +692,17 @@ static void* _listenDtlsServer(void* arg)
 
         while (DTLSv1_listen(ssl, &client_addr) <= 0)
         {
-            if (server->is_running == FALSE)
+            if (server->is_started == FALSE)
             {
                 dprint("here");
                 goto _END;
             }
         }
 
-        info = dtls_createConnInfo(bio, ssl, client_addr, server);
-        check_if(info == NULL, goto _END, "dtls_createConnInfo failed");
+        info = _createConnInfo(bio, ssl, client_addr, server);
+        check_if(info == NULL, goto _END, "_createConnInfo failed");
 
-        check = pthread_create( &connThread, NULL, _handleDtlsConn, info);
+        check = pthread_create(&info->conn_thread, NULL, _handleDtlsConn, info);
         check_if(check != 0, goto _END, "pthread_create failed");
 
         ssl = NULL;
@@ -474,10 +710,15 @@ static void* _listenDtlsServer(void* arg)
     }
 
 _END:
-    if (server->fd > 0)
+    if (server->dtls_fd > 0)
     {
-        close(server->fd);
-        server->fd = -1;
+        close(server->dtls_fd);
+        server->dtls_fd = -1;
+    }
+
+    if (info)
+    {
+        _destroyConnInfo(info);
     }
 
     if (ssl)
@@ -487,156 +728,19 @@ _END:
         ssl = NULL;
     }
 
-    dprint("Thread %lx: done, connection closed.", dtls_idCallback());
+    dprint("Thread %lx: done, connection closed.", _dtlsIdCallback());
 
     ERR_remove_state(0);
     pthread_exit(0);
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
-
-int dtls_checkSslWrite(SSL* ssl, char* buffer, int len)
-{
-    int ret = DTLS_FAIL;
-
-    switch (SSL_get_error(ssl, len))
-    {
-        case SSL_ERROR_NONE:
-            // dprint("wrote %d bytes", len);
-            ret = DTLS_OK;
-            break;
-
-        case SSL_ERROR_WANT_WRITE:
-            /* Just try again later */
-            derror("SSL_ERROR_WANT_WRITE");
-            break;
-
-        case SSL_ERROR_WANT_READ:
-            /* continue with reading */
-            derror("SSL_ERROR_WANT_READ");
-            break;
-
-        case SSL_ERROR_SYSCALL:
-            derror("Socket write error: ");
-            _showSocketError();
-            break;
-
-        case SSL_ERROR_SSL:
-            derror("SSL write error: ");
-            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer),
-                   SSL_get_error(ssl, len));
-            break;
-
-        default:
-            derror("Unexpected error while writing!");
-            break;
-    }
-
-    return ret;
-}
-
-int dtls_checkSslRead(SSL* ssl, char* buffer, int len)
-{
-    int ret = DTLS_FAIL;
-
-    switch (SSL_get_error(ssl, len))
-    {
-        case SSL_ERROR_NONE:
-            // dprint("read %d bytes", (int) len);
-            ret = DTLS_OK;
-            break;
-
-        case SSL_ERROR_ZERO_RETURN:
-            // dprint("no data to read");
-            ret = DTLS_END;
-            break;
-
-        case SSL_ERROR_WANT_READ:
-            /* Stop reading on socket timeout, otherwise try again */
-            if (BIO_ctrl(SSL_get_rbio(ssl), BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP,
-                        0, NULL))
-            {
-                derror("Timeout! No response received.");
-            }
-            break;
-
-        case SSL_ERROR_SYSCALL:
-            derror("Socket read error: ");
-            _showSocketError();
-            break;
-
-        case SSL_ERROR_SSL:
-            derror("SSL read error: ");
-            derror("%s (%d)", ERR_error_string(ERR_get_error(), buffer),
-                   SSL_get_error(ssl, len));
-            break;
-
-        default:
-            derror("Unexpected error while reading!\n");
-            break;
-    }
-
-    return ret;
-}
-
-dtlsConnInfo* dtls_createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
-                                  dtlsServer *server)
-{
-    dtlsConnInfo* info = NULL;
-
-    check_if(bio == NULL, return NULL, "bio is null");
-    check_if(ssl == NULL, return NULL, "ssl is null");
-    check_if(server == NULL, return NULL, "server is null");
-    check_if(server->callback == NULL, return NULL, "server->callback is null");
-
-    info      = (dtlsConnInfo*)calloc(sizeof(dtlsConnInfo), 1);
-    info->bio = bio;
-    info->ssl = ssl;
-
-    memcpy(&info->client_addr, &client_addr, sizeof(struct sockaddr_storage));
-    memcpy(&info->local_addr,  &server->local_addr,
-           sizeof(struct sockaddr_storage));
-
-    info->timeout.tv_sec  = DTLS_SERVER_DEFAULT_TIMEOUT;
-    info->timeout.tv_usec = 0;
-    info->callback        = server->callback;
-
-    if (server->conn_arg && server->conn_arg_len > 0)
-    {
-        info->conn_arg = calloc(server->conn_arg_len, 1);
-        memcpy(info->conn_arg, server->conn_arg, server->conn_arg_len);
-    }
-
-    return info;
-}
-
-void dtls_destroyConnInfo(dtlsConnInfo* info)
-{
-    check_if(info == NULL, return, "info is null");
-
-    if (info->ssl)
-    {
-        SSL_free(info->ssl);
-        info->ssl = NULL;
-    }
-
-    if (info->conn_arg)
-    {
-        free(info->conn_arg);
-        info->conn_arg = NULL;
-    }
-
-    free(info);
-
-    return;
-}
 
 int dtls_startServer(dtlsServer* server)
 {
     check_if(server == NULL, return DTLS_FAIL, "server is null");
 
-    server->is_running = TRUE;
+    server->is_started = TRUE;
     pthread_create(&server->listen_thread, NULL, _listenDtlsServer, server);
 
     dprint("ok");
@@ -645,26 +749,96 @@ int dtls_startServer(dtlsServer* server)
 
 int dtls_stopServer(dtlsServer* server)
 {
+    dtlsConnInfo* info = NULL;
+
     check_if(server == NULL, return DTLS_FAIL, "server is null");
 
-    dprint("wait...");
+    dprint("wait listen thread over...");
 
-    server->is_running = FALSE;
+    server->is_started = FALSE;
     pthread_join(server->listen_thread, NULL);
+
+    info = server->conn_list;
+    while (info)
+    {
+        dprint("wait conn thread over");
+        _destroyConnInfo(info);
+        info = info->next;
+    }
 
     dprint("ok");
 
     return DTLS_OK;
 }
 
+static int _createUnixSocketServer(dtlsServer* server, const int local_port)
+{
+    int  check    = -1;
+    int  fd       = -1;
+    struct sockaddr_un local = {.sun_family = AF_UNIX};
+
+    check_if(server == NULL, goto _ERROR, "server is null");
+
+    snprintf(server->unpath, 20, "DTLS_SERVER_%d", local_port);
+    unlink(server->unpath);
+
+    fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+    check_if(fd < 0, goto _ERROR, "socket failed");
+
+    strncpy(local.sun_path, server->unpath, sizeof(local.sun_path) - 1);
+
+    check = bind(fd, (struct sockaddr*)&local, sizeof(struct sockaddr_un));
+    check_if(check < 0, goto _ERROR, "bind failed");
+
+    server->fd             = fd;
+    server->un_server_addr = local;
+
+    return DTLS_OK;
+
+_ERROR:
+    if (fd > 0)
+    {
+        close(fd);
+    }
+
+    server->fd = -1;
+    return DTLS_FAIL;
+}
+
+static int _createUnixSocketClient(dtlsServer* server, char* path)
+{
+    int fd = -1;
+    struct sockaddr_un unaddr = {.sun_family = AF_UNIX};
+
+    check_if(server == NULL, goto _ERROR, "server is null");
+    check_if(path == NULL, goto _ERROR, "path is null");
+
+    fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+    check_if(fd < 0, goto _ERROR, "socket failed");
+
+    strncpy(unaddr.sun_path, path, sizeof(unaddr.sun_path) - 1);
+    
+    server->un_client_fd   = fd;
+    server->un_client_addr = unaddr;
+
+    return DTLS_OK;
+
+_ERROR:
+    if (fd > 0)
+    {
+        close(fd);
+    }
+    server->un_client_fd = -1;
+    return DTLS_FAIL;
+}
+
+
 int dtls_initServer(const char* local_ip, const int local_port,
-                     serverRecvFunc callback, void* conn_arg,
-                     int conn_arg_len, dtlsServer* server)
+                    dtlsServer* server)
 {
     int check;
 
     check_if(server == NULL, return DTLS_FAIL, "server is null");
-    check_if(callback == NULL, return DTLS_FAIL, "callback is null");
 
     memset(server, 0, sizeof(dtlsServer));
 
@@ -682,6 +856,12 @@ int dtls_initServer(const char* local_ip, const int local_port,
         server->local_addr.s6.sin6_len = sizeof(struct sockaddr_in6);
 #endif
     }
+
+    check = _createUnixSocketServer(server, local_port);
+    check_if(check != DTLS_OK, goto _ERROR, "_createUnixSocketServer failed");
+
+    check = _createUnixSocketClient(server, server->unpath);
+    check_if(check != DTLS_OK, goto _ERROR, "_createUnixSocketClient failed");
 
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
@@ -722,39 +902,31 @@ int dtls_initServer(const char* local_ip, const int local_port,
     SSL_CTX_set_cookie_verify_cb(server->ctx, _verifyCookie);
 
     const int on = 1, off = 0;
-    server->fd = socket(server->local_addr.ss.ss_family, SOCK_DGRAM, 0);
-    check_if(server->fd < 0, goto _ERROR, "socket create failed");
+    server->dtls_fd = socket(server->local_addr.ss.ss_family, SOCK_DGRAM, 0);
+    check_if(server->dtls_fd < 0, goto _ERROR, "socket create failed");
 
-    check = setsockopt(server->fd, SOL_SOCKET, SO_REUSEADDR, (const void*)&on,
+    check = setsockopt(server->dtls_fd, SOL_SOCKET, SO_REUSEADDR, (const void*)&on,
                        (socklen_t)sizeof(on));
     check_if(check < 0, goto _ERROR, "setsockopt reuse addr failed");
 
     if (server->local_addr.ss.ss_family == AF_INET)
     {
-        check = bind(server->fd, (const struct sockaddr*)&server->local_addr,
+        check = bind(server->dtls_fd, (const struct sockaddr*)&server->local_addr,
                      sizeof(struct sockaddr_in));
         check_if(check < 0, goto _ERROR, "bind AF_INET failed");
     }
     else
     {
-        check = setsockopt(server->fd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off,
+        check = setsockopt(server->dtls_fd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off,
                            sizeof(off));
         check_if(check < 0, goto _ERROR, "setsockopt ipv6 only failed");
 
-        check = bind(server->fd, (const struct sockaddr*)&server->local_addr,
+        check = bind(server->dtls_fd, (const struct sockaddr*)&server->local_addr,
                      sizeof(struct sockaddr_in6));
         check_if(check < 0, goto _ERROR, "bind AF_INET6 failed");
     }
 
-    server->is_running = FALSE;
-    server->callback = callback;
-
-    if (conn_arg && conn_arg_len > 0)
-    {
-        server->conn_arg     = calloc(conn_arg_len, 1);
-        server->conn_arg_len = conn_arg_len;
-        memcpy(server->conn_arg, conn_arg, conn_arg_len);
-    }
+    server->is_started = FALSE;
 
     dprint("ok");
 
@@ -770,23 +942,29 @@ int dtls_uninitServer(dtlsServer* server)
 {
     check_if(server == NULL, return DTLS_FAIL, "server is null");
 
-    server->is_running = FALSE;
+    server->is_started = FALSE;
+
+    unlink(server->unpath);
 
     if (server->fd > 0)
     {
         close(server->fd);
     }
 
+    if (server->un_client_fd > 0)
+    {
+        close(server->un_client_fd);
+    }
+
+    if (server->dtls_fd > 0)
+    {
+        close(server->dtls_fd);
+    }
+
     if (server->ctx)
     {
         SSL_CTX_free(server->ctx);
         server->ctx = NULL;
-    }
-
-    if (server->conn_arg)
-    {
-        free(server->conn_arg);
-        server->conn_arg = NULL;
     }
 
     ERR_free_strings();
@@ -796,6 +974,26 @@ int dtls_uninitServer(dtlsServer* server)
     dprint("ok");
 
     return DTLS_OK;
+}
+
+int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
+{
+    int recvlen = -1;
+    int addrlen = sizeof(struct sockaddr_un);
+    struct sockaddr_un unused;
+
+    check_if(server == NULL, return -1, "server is null");
+    check_if(buffer == NULL, return -1, "buffer is null");
+    check_if(buffer_size <= 0, return -1, "buffer_size is %d", buffer_size);
+
+    recvlen = recvfrom(server->fd, buffer, buffer_size, 0,
+                       (struct sockaddr*)&unused, &addrlen);
+    if (recvlen <= 0)
+    {
+        derror("recvfrom failed");
+    }
+
+    return recvlen;
 }
 
 int dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client)
@@ -932,7 +1130,7 @@ int dtls_startClient(dtlsClient* client)
         X509_free(pX509);
     }
 
-    client->is_running = TRUE;
+    client->is_started = TRUE;
     return DTLS_OK;
 
 _ERROR:
@@ -945,7 +1143,7 @@ int dtls_stopClient(dtlsClient* client)
     check_if(client == NULL, return DTLS_FAIL, "client is null");
 
     SSL_shutdown(client->ssl);
-    client->is_running = FALSE;
+    client->is_started = FALSE;
 
     return DTLS_OK;
 }
@@ -955,21 +1153,16 @@ int dtls_sendData(dtlsClient* client, void* data, int data_len)
     check_if(client == NULL, return -1, "client is null");
     check_if(data == NULL, return -1, "data is null");
     check_if(data_len <= 0, return -1, "data_len = %d", data_len);
-    check_if(client->is_running == FALSE, return -1, 
+    check_if(client->is_started == FALSE, return -1, 
             "client is not started yet");
-    check_if(dtls_isAlive(client->ssl) == FALSE, return -1, 
+    check_if(_isDtlsAlive(client->ssl) == FALSE, return -1, 
             "client's ssl is not alive");
     
     int writeLen = SSL_write(client->ssl, data, data_len);
-    int check    = dtls_checkSslWrite(client->ssl, data, writeLen);
-    check_if(check != DTLS_OK, return -1, "dtls_checkSslWrite failed");
+    int check    = _checkSslWrite(client->ssl, data, writeLen);
+    check_if(check != DTLS_OK, return -1, "_checkSslWrite failed");
 
     return writeLen;
-}
-
-unsigned long dtls_idCallback(void)
-{
-    return (unsigned long)pthread_self();
 }
 
 int dtls_initSystem(void)
@@ -984,7 +1177,7 @@ int dtls_initSystem(void)
         pthread_mutex_init(&_mutex_buf[i], NULL);
     }
 
-    CRYPTO_set_id_callback(dtls_idCallback);
+    CRYPTO_set_id_callback(_dtlsIdCallback);
     CRYPTO_set_locking_callback(_sslLockFunc);
 
     return DTLS_OK;
