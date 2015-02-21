@@ -55,19 +55,19 @@ int main(int argc, char *argv[])
 
 static void _server(int local_port)
 {
-    dtlsServer server = {};
-    int check;
+    int    check;
+    fd_set readset;
+    int    select_ret;
+    char   buffer[BUFFER_SIZE] = {0};
+    int    recvlen;
+
+    dtlsServer     server  = {};
+    struct timeval timeout = {};
 
     check = dtls_initServer(NULL, local_port, &server);
     check_if(check != DTLS_OK, return, "dtls_initServer failed");
 
-    fd_set readset;
-    int   select_ret;
-    struct timeval timeout;
-    char buffer[BUFFER_SIZE] = {0};
-    int  recvlen;
-
-    dtls_startServer(&server);
+    check = dtls_startServer(&server);
 
     while (_running)
     {
@@ -126,7 +126,7 @@ static void _client(char* remote_ip, int remote_port)
     int  writelen = 0;
     int  i;
 
-    for (i=0; i<200; i++)
+    for (i=0; i<200 && _running; i++)
     {
         sprintf(buffer, "message No. %d", i);
         writelen = dtls_sendData(&client, buffer, strlen(buffer)+1);
@@ -139,6 +139,8 @@ static void _client(char* remote_ip, int remote_port)
             derror("send failed");
             goto _END;
         }
+
+        sleep(1);
     }
 
 _END:
