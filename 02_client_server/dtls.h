@@ -68,8 +68,6 @@ typedef struct dtlsConnInfo
 
     struct dtlsConnInfo* next;
 
-    pthread_t conn_thread;
-
 } dtlsConnInfo;
 
 typedef struct dtlsServer

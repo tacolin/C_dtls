@@ -10,16 +10,13 @@ static pthread_mutex_t* _mutex_buf       = NULL;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static int _createUnixSocketServer(dtlsServer* server, const int local_port)
+static int _createUnixSocketServer(dtlsServer* server)
 {
     int  check    = -1;
     int  fd       = -1;
     struct sockaddr_un local = {.sun_family = AF_UNIX};
 
     check_if(server == NULL, goto _ERROR, "server is null");
-
-    snprintf(server->unpath, 20, "DTLS_SERVER_%d", local_port);
-    unlink(server->unpath);
 
     fd = socket(AF_UNIX, SOCK_DGRAM, 0);
     check_if(fd < 0, goto _ERROR, "socket failed");
@@ -44,18 +41,17 @@ _ERROR:
     return DTLS_FAIL;
 }
 
-static int _createUnixSocketClient(dtlsServer* server, char* path)
+static int _createUnixSocketClient(dtlsServer* server)
 {
     int fd = -1;
     struct sockaddr_un unaddr = {.sun_family = AF_UNIX};
 
     check_if(server == NULL, goto _ERROR, "server is null");
-    check_if(path == NULL, goto _ERROR, "path is null");
 
     fd = socket(AF_UNIX, SOCK_DGRAM, 0);
     check_if(fd < 0, goto _ERROR, "socket failed");
 
-    strncpy(unaddr.sun_path, path, sizeof(unaddr.sun_path) - 1);
+    strncpy(unaddr.sun_path, server->unpath, sizeof(unaddr.sun_path) - 1);
     
     server->un_client_fd   = fd;
     server->un_client_addr = unaddr;
@@ -262,7 +258,6 @@ static void _destroyConnInfo(dtlsConnInfo* info)
         info->ssl = NULL;
     }
 
-    pthread_join(info->conn_thread, NULL);
     free(info);
 
     dprint("over");
@@ -573,7 +568,7 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
         printf("\n\n");
         printf("Cipher: %s",
                SSL_CIPHER_get_name(SSL_get_current_cipher(info->ssl)));
-        printf("------------------------------------------------------------\n");
+        printf("-----------------------------------------------------------\n");
 
         X509_free(pX509);
     }
@@ -600,7 +595,7 @@ static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
     server = (dtlsServer*)info->server;
     check_if(server == NULL, goto _END, "info->server is null");
 
-    while (_isDtlsAlive(ssl))
+    while (_isDtlsAlive(ssl) && server->is_started)
     {
         readlen = SSL_read(ssl, buffer, BUFFER_SIZE);
         check = _checkSslRead(ssl, buffer, readlen);
@@ -726,6 +721,7 @@ static void* _listenDtlsServer(void* arg)
     struct timeval timeout     = {};
     dtlsConnInfo*  info        = NULL;
     int            check;
+    pthread_t      conn_thread;
 
     check_if(arg == NULL, goto _END, "arg is null");
 
@@ -763,7 +759,7 @@ static void* _listenDtlsServer(void* arg)
         info = _createConnInfo(bio, ssl, client_addr, server);
         check_if(info == NULL, goto _END, "_createConnInfo failed");
 
-        check = pthread_create(&info->conn_thread, NULL, _handleDtlsConn, info);
+        check = pthread_create(&conn_thread, NULL, _handleDtlsConn, info);
         check_if(check != 0, goto _END, "pthread_create failed");
 
         ssl = NULL;
@@ -811,22 +807,19 @@ int dtls_startServer(dtlsServer* server)
 
 int dtls_stopServer(dtlsServer* server)
 {
-    dtlsConnInfo* info = NULL;
-
     check_if(server == NULL, return DTLS_FAIL, "server is null");
-    check_if(server->is_started == FALSE, return DTLS_FAIL, "server is stopped");
+    check_if(server->is_started == FALSE, return DTLS_FAIL,"server is stopped");
 
     dprint("wait listen thread over...");
 
     server->is_started = FALSE;
     pthread_join(server->listen_thread, NULL);
 
-    info = server->conn_list;
-    while (info)
+    int i;
+    for (i=0; i<10 && server->conn_list; i++)
     {
-        dprint("wait conn thread over");
-        _destroyConnInfo(info);
-        info = info->next;
+        dprint("wait for all conn thread over ... %d secs", (i+1));
+        sleep(1);
     }
 
     dprint("ok");
@@ -858,10 +851,13 @@ int dtls_initServer(const char* local_ip, const int local_port,
 #endif
     }
 
-    check = _createUnixSocketServer(server, local_port);
+    snprintf(server->unpath, 20, "DTLS_SERVER_%d", local_port);
+    unlink(server->unpath);
+
+    check = _createUnixSocketServer(server);
     check_if(check != DTLS_OK, goto _ERROR, "_createUnixSocketServer failed");
 
-    check = _createUnixSocketClient(server, server->unpath);
+    check = _createUnixSocketClient(server);
     check_if(check != DTLS_OK, goto _ERROR, "_createUnixSocketClient failed");
 
     OpenSSL_add_ssl_algorithms();
@@ -906,23 +902,25 @@ int dtls_initServer(const char* local_ip, const int local_port,
     server->dtls_fd = socket(server->local_addr.ss.ss_family, SOCK_DGRAM, 0);
     check_if(server->dtls_fd < 0, goto _ERROR, "socket create failed");
 
-    check = setsockopt(server->dtls_fd, SOL_SOCKET, SO_REUSEADDR, (const void*)&on,
-                       (socklen_t)sizeof(on));
+    check = setsockopt(server->dtls_fd, SOL_SOCKET, SO_REUSEADDR, 
+                       (const void*)&on, (socklen_t)sizeof(on));
     check_if(check < 0, goto _ERROR, "setsockopt reuse addr failed");
 
     if (server->local_addr.ss.ss_family == AF_INET)
     {
-        check = bind(server->dtls_fd, (const struct sockaddr*)&server->local_addr,
+        check = bind(server->dtls_fd, 
+                     (const struct sockaddr*)&server->local_addr,
                      sizeof(struct sockaddr_in));
         check_if(check < 0, goto _ERROR, "bind AF_INET failed");
     }
     else
     {
-        check = setsockopt(server->dtls_fd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&off,
-                           sizeof(off));
+        check = setsockopt(server->dtls_fd, IPPROTO_IPV6, IPV6_V6ONLY, 
+                           (char*)&off, sizeof(off));
         check_if(check < 0, goto _ERROR, "setsockopt ipv6 only failed");
 
-        check = bind(server->dtls_fd, (const struct sockaddr*)&server->local_addr,
+        check = bind(server->dtls_fd, 
+                     (const struct sockaddr*)&server->local_addr,
                      sizeof(struct sockaddr_in6));
         check_if(check < 0, goto _ERROR, "bind AF_INET6 failed");
     }
@@ -982,15 +980,15 @@ int dtls_uninitServer(dtlsServer* server)
 
 int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
 {
-    int recvlen = -1;
-    int addrlen = sizeof(struct sockaddr_un);
-    struct sockaddr_un unused;
-
     check_if(server == NULL, return -1, "server is null");
     check_if(buffer == NULL, return -1, "buffer is null");
     check_if(buffer_size <= 0, return -1, "buffer_size is %d", buffer_size);
     check_if(server->is_started == FALSE, return -1, 
              "server is not started yet");
+
+    int recvlen;
+    int addrlen = sizeof(struct sockaddr_un);
+    struct sockaddr_un unused;
 
     recvlen = recvfrom(server->fd, buffer, buffer_size, 0,
                        (struct sockaddr*)&unused, &addrlen);
@@ -1004,15 +1002,15 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
 
 int dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client)
 {
-    int chk;
+    int check;
 
-    check_if(client == NULL, return DTLS_FAIL, "client is null");
+    check_if(client == NULL,    return DTLS_FAIL, "client is null");
     check_if(remote_ip == NULL, return DTLS_FAIL, "remote_ip is null");
 
     memset(client, 0, sizeof(dtlsClient));
 
-    chk = _configAddr(remote_ip, remote_port, &(client->server_addr));
-    check_if(chk != DTLS_OK, return chk, "_configAddr failed");
+    check = _configAddr(remote_ip, remote_port, &(client->server_addr));
+    check_if(check != DTLS_OK, return check, "_configAddr failed");
 
     client->timeout.tv_sec  = DTLS_CLIENT_DEFAULT_TIMEOUT;
     client->timeout.tv_usec = 0;
@@ -1143,6 +1141,7 @@ int dtls_startClient(dtlsClient* client)
     }
 
     client->is_started = TRUE;
+    
     return DTLS_OK;
 
 _ERROR:
@@ -1165,8 +1164,8 @@ int dtls_stopClient(dtlsClient* client)
 int dtls_sendData(dtlsClient* client, void* data, int data_len)
 {
     check_if(client == NULL, return -1, "client is null");
-    check_if(data == NULL, return -1, "data is null");
-    check_if(data_len <= 0, return -1, "data_len = %d", data_len);
+    check_if(data == NULL,   return -1, "data is null");
+    check_if(data_len <= 0,  return -1, "data_len = %d", data_len);
 
     check_if(client->is_started == FALSE, return -1, 
             "client is not started yet");
@@ -1174,11 +1173,14 @@ int dtls_sendData(dtlsClient* client, void* data, int data_len)
     check_if(_isDtlsAlive(client->ssl) == FALSE, return -1, 
             "client's ssl is not alive");
     
-    int writeLen = SSL_write(client->ssl, data, data_len);
-    int check    = _checkSslWrite(client->ssl, data, writeLen);
+    int writelen;
+    int check;
+
+    writelen = SSL_write(client->ssl, data, data_len);
+    check    = _checkSslWrite(client->ssl, data, writelen);
     check_if(check != DTLS_OK, return -1, "_checkSslWrite failed");
 
-    return writeLen;
+    return writelen;
 }
 
 int dtls_initSystem(void)
