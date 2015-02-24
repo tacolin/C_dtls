@@ -14,11 +14,6 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define DTLS_SERVER_PEM_PATH "certs/server-cert.pem"
-#define DTLS_SERVER_KEY_PATH "certs/server-key.pem"
-
-////////////////////////////////////////////////////////////////////////////////
-
 typedef enum
 {
     DTLS_OK   = 0,
@@ -106,8 +101,8 @@ typedef struct dtlsServer
 ////////////////////////////////////////////////////////////////////////////////
 
 dtlsStatus dtls_initServer(const char* local_ip, const int local_port,
-                           struct timeval timeout,
-                           dtlsServer* server);
+                           const char* pem_path, const char* key_path,
+                           struct timeval timeout, dtlsServer* server);
 
 dtlsStatus dtls_uninitServer(dtlsServer* server);
 

@@ -88,7 +88,10 @@ static void _server(int local_port)
         .tv_usec = 0,
     };
 
-    check = dtls_initServer(NULL, local_port, dtls_timeout, &server);
+    check = dtls_initServer(NULL, local_port,
+                            "certs/server-cert.pem",
+                            "certs/server-key.pem",
+                            dtls_timeout, &server);
     check_if(check != DTLS_OK, return, "dtls_initServer failed");
 
     check = dtls_startServer(&server);

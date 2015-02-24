@@ -846,13 +846,15 @@ int dtls_stopServer(dtlsServer* server)
     return DTLS_OK;
 }
 
-int dtls_initServer(const char* local_ip, const int local_port,
-                    struct timeval timeout,
-                    dtlsServer* server)
+dtlsStatus dtls_initServer(const char* local_ip, const int local_port,
+                           const char* pem_path, const char* key_path,
+                           struct timeval timeout, dtlsServer* server)
 {
     int check;
 
     check_if(server == NULL, return DTLS_FAIL, "server is null");
+    check_if(pem_path == NULL, return DTLS_FAIL, "pem_path is null");
+    check_if(key_path == NULL, return DTLS_FAIL, "key_path is null");
 
     memset(server, 0, sizeof(dtlsServer));
 
@@ -891,14 +893,14 @@ int dtls_initServer(const char* local_ip, const int local_port,
     SSL_CTX_set_cipher_list(server->ctx, "ALL:NULL:eNULL:aNULL");
     SSL_CTX_set_session_cache_mode(server->ctx, SSL_SESS_CACHE_OFF);
 
-    if (!SSL_CTX_use_certificate_file(server->ctx, DTLS_SERVER_PEM_PATH,
+    if (!SSL_CTX_use_certificate_file(server->ctx, pem_path,
                                         SSL_FILETYPE_PEM))
     {
         derror("ERROR: no certificate found!");
         goto _ERROR;
     }
 
-    if (!SSL_CTX_use_PrivateKey_file(server->ctx, DTLS_SERVER_KEY_PATH,
+    if (!SSL_CTX_use_PrivateKey_file(server->ctx, key_path,
                                         SSL_FILETYPE_PEM))
     {
         derror("ERROR: no private key found!");
