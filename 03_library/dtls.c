@@ -1,5 +1,10 @@
 #include "dtls.h"
 
+#include <stdio.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <string.h>
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #define DTLS_BUF_SIZE ( 1 << 16 )
@@ -598,7 +603,6 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
 
 static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
 {
-    int  i;
     char buffer[DTLS_BUF_SIZE] = {0};
     int  readlen;
     int  sendlen;
@@ -1011,7 +1015,7 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
              "server is not started yet");
 
     int recvlen;
-    int addrlen = sizeof(struct sockaddr_un);
+    socklen_t addrlen = sizeof(struct sockaddr_un);
     struct sockaddr_un unused;
 
     recvlen = recvfrom(server->fd, buffer, buffer_size, 0,
