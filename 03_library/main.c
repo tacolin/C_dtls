@@ -145,7 +145,10 @@ static void _client(char* remote_ip, int remote_port)
 
     dprint("client open");
 
-    check = dtls_initClient(remote_ip, remote_port, timeout, &client);
+    check = dtls_initClient(remote_ip, remote_port,
+                            "certs/client-cert.pem",
+                            "certs/client-key.pem",
+                            timeout, &client);
     check_if(check != DTLS_OK, return, "dtls_initClient failed");
 
     check = dtls_startClient(&client);

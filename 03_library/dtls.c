@@ -7,6 +7,8 @@
 
 #define DTLS_END  0xabcd
 
+#define DTLS_CONNECTION_DEFAULT_TIMEOUT 1
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #define dprint(a, b...) fprintf(stdout, "%s(): "a"\n", __func__, ##b)
@@ -24,8 +26,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 static unsigned char    _cookie_secret[DTLS_COOKIE_SECRET_LENGTH] = {0};
-static int              _cookie_initialized = 0;
-static pthread_mutex_t* _mutex_buf       = NULL;
+static int              _cookie_initialized                       = 0;
+static pthread_mutex_t* _mutex_buf                                = NULL;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1021,18 +1023,23 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
 }
 
 int dtls_initClient(const char* remote_ip, int remote_port,
-                    struct timeval timeout,
-                    dtlsClient* client)
+                    const char* pem_path, const char* key_path,
+                    struct timeval timeout, dtlsClient* client)
 {
     int check;
 
     check_if(client == NULL,    return DTLS_FAIL, "client is null");
     check_if(remote_ip == NULL, return DTLS_FAIL, "remote_ip is null");
+    check_if(pem_path == NULL, return DTLS_FAIL, "pem_path is null");
+    check_if(key_path == NULL, return DTLS_FAIL, "key_path is null");
 
     memset(client, 0, sizeof(dtlsClient));
 
     check = _configAddr(remote_ip, remote_port, &(client->server_addr));
     check_if(check != DTLS_OK, return check, "_configAddr failed");
+
+    asprintf(&(client->pem_path), "%s", pem_path);
+    asprintf(&(client->key_path), "%s", key_path);
 
     client->timeout = timeout;
 
@@ -1051,6 +1058,16 @@ int dtls_uninitClient(dtlsClient* client)
     if (client->fd > 0)
     {
         close(client->fd);
+    }
+
+    if (client->pem_path)
+    {
+        free(client->pem_path);
+    }
+
+    if (client->key_path)
+    {
+        free(client->key_path);
     }
 
     /////////////////////////////////////////////////////////
@@ -1094,14 +1111,14 @@ int dtls_startClient(dtlsClient* client)
     client->ctx = SSL_CTX_new(DTLSv1_client_method());
     SSL_CTX_set_cipher_list(client->ctx, "eNULL:!MD5");
 
-    if (!SSL_CTX_use_certificate_file(client->ctx, DTLS_CLIENT_PEM_PATH,
+    if (!SSL_CTX_use_certificate_file(client->ctx, client->pem_path,
                                         SSL_FILETYPE_PEM))
     {
         derror("ERROR: no certificate found!");
         goto _ERROR;
     }
 
-    if (!SSL_CTX_use_PrivateKey_file(client->ctx, DTLS_CLIENT_KEY_PATH,
+    if (!SSL_CTX_use_PrivateKey_file(client->ctx, client->key_path,
                                         SSL_FILETYPE_PEM))
     {
         derror("ERROR: no private key found!");

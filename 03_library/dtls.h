@@ -14,13 +14,8 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define DTLS_CLIENT_PEM_PATH "certs/client-cert.pem"
-#define DTLS_CLIENT_KEY_PATH "certs/client-key.pem"
-
 #define DTLS_SERVER_PEM_PATH "certs/server-cert.pem"
 #define DTLS_SERVER_KEY_PATH "certs/server-key.pem"
-
-#define DTLS_CONNECTION_DEFAULT_TIMEOUT 1
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -53,6 +48,9 @@ typedef struct dtlsClient
     SSL_CTX* ctx;
     SSL*     ssl;
     BIO*     bio;
+
+    char* pem_path;
+    char* key_path;
 
     dtlsAddr       server_addr;
     struct timeval timeout;
@@ -121,8 +119,8 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size);
 ////////////////////////////////////////////////////////////////////////////////
 
 dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
-                           struct timeval timeout,
-                           dtlsClient* client);
+                           const char* pem_path, const char* key_path,
+                           struct timeval timeout, dtlsClient* client);
 
 dtlsStatus dtls_uninitClient(dtlsClient* client);
 
@@ -134,7 +132,6 @@ int dtls_sendData(dtlsClient* client, void* data, int data_len);
 ////////////////////////////////////////////////////////////////////////////////
 
 dtlsStatus  dtls_initSystem(void);
-
 void        dtls_uninitSystem(void);
 
 #endif //_DTLS_API_H_
