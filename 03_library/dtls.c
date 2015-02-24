@@ -1,6 +1,11 @@
-
-#include "basic.h"
 #include "dtls.h"
+
+////////////////////////////////////////////////////////////////////////////////
+
+#define DTLS_BUF_SIZE ( 1 << 16 )
+#define DTLS_COOKIE_SECRET_LENGTH 16
+
+#define DTLS_END  0xabcd
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -16,10 +21,9 @@
     }\
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
 
-static unsigned char    _cookie_secret[COOKIE_SECRET_LENGTH] = {0};
+static unsigned char    _cookie_secret[DTLS_COOKIE_SECRET_LENGTH] = {0};
 static int              _cookie_initialized = 0;
 static pthread_mutex_t* _mutex_buf       = NULL;
 
@@ -435,7 +439,7 @@ static int _verifyCookie(SSL *ssl, unsigned char *cookie,
     }
 
     /* Calculate HMAC of buffer using the secret */
-    HMAC(EVP_sha1(), (const void*) _cookie_secret, COOKIE_SECRET_LENGTH,
+    HMAC(EVP_sha1(), (const void*) _cookie_secret, DTLS_COOKIE_SECRET_LENGTH,
          (const unsigned char*) buffer, length, result, &resultlength);
 
     OPENSSL_free(buffer);
@@ -460,7 +464,7 @@ static int _generateCookie(SSL *ssl, unsigned char *cookie,
     /* Initialize a random secret */
     if (!_cookie_initialized)
     {
-        if (!RAND_bytes(_cookie_secret, COOKIE_SECRET_LENGTH))
+        if (!RAND_bytes(_cookie_secret, DTLS_COOKIE_SECRET_LENGTH))
         {
             derror("error setting random cookie secret");
             return 0;
@@ -523,7 +527,7 @@ static int _generateCookie(SSL *ssl, unsigned char *cookie,
     }
 
     /* Calculate HMAC of buffer using the secret */
-    HMAC(EVP_sha1(), (const void*) _cookie_secret, COOKIE_SECRET_LENGTH,
+    HMAC(EVP_sha1(), (const void*) _cookie_secret, DTLS_COOKIE_SECRET_LENGTH,
          (const unsigned char*) buffer, length, result, &resultlength);
 
     OPENSSL_free(buffer);
@@ -595,7 +599,7 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
 static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
 {
     int  i;
-    char buffer[BUFFER_SIZE] = {0};
+    char buffer[DTLS_BUF_SIZE] = {0};
     int  readlen;
     int  sendlen;
     int  check;
@@ -612,7 +616,7 @@ static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
 
     while (_isDtlsAlive(ssl) && server->is_started)
     {
-        readlen = SSL_read(ssl, buffer, BUFFER_SIZE);
+        readlen = SSL_read(ssl, buffer, DTLS_BUF_SIZE);
         check = _checkSslRead(ssl, buffer, readlen);
         if (check == DTLS_FAIL)
         {
@@ -705,7 +709,7 @@ static void* _handleDtlsConn(void *arg)
     ///////////////////////////////////////////////////////////////////////////
     // New Socket Accept
     ///////////////////////////////////////////////////////////////////////////
-    char buf[BUFFER_SIZE];
+    char buf[DTLS_BUF_SIZE];
     char addrbuf[INET6_ADDRSTRLEN];
 
     check = _acceptSslConn(info, fd, buf, addrbuf);
@@ -764,7 +768,7 @@ static void* _listenDtlsServer(void* arg)
 
         while (DTLSv1_listen(ssl, &client_addr) <= 0)
         {
-            if (server->is_started == FALSE)
+            if (server->is_started == DTLS_FALSE)
             {
                 dprint("here");
                 goto _END;
@@ -811,9 +815,9 @@ _END:
 int dtls_startServer(dtlsServer* server)
 {
     check_if(server == NULL, return DTLS_FAIL, "server is null");
-    check_if(server->is_started == TRUE, return DTLS_FAIL, "server is started");
+    check_if(server->is_started == DTLS_TRUE, return DTLS_FAIL, "server is started");
 
-    server->is_started = TRUE;
+    server->is_started = DTLS_TRUE;
     pthread_create(&server->listen_thread, NULL, _listenDtlsServer, server);
 
     dprint("ok");
@@ -823,11 +827,11 @@ int dtls_startServer(dtlsServer* server)
 int dtls_stopServer(dtlsServer* server)
 {
     check_if(server == NULL, return DTLS_FAIL, "server is null");
-    check_if(server->is_started == FALSE, return DTLS_FAIL,"server is stopped");
+    check_if(server->is_started == DTLS_FALSE, return DTLS_FAIL,"server is stopped");
 
     dprint("wait listen thread over...");
 
-    server->is_started = FALSE;
+    server->is_started = DTLS_FALSE;
     pthread_join(server->listen_thread, NULL);
 
     int i;
@@ -940,7 +944,7 @@ int dtls_initServer(const char* local_ip, const int local_port,
         check_if(check < 0, goto _ERROR, "bind AF_INET6 failed");
     }
 
-    server->is_started = FALSE;
+    server->is_started = DTLS_FALSE;
 
     dprint("ok");
 
@@ -998,7 +1002,7 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
     check_if(server == NULL, return -1, "server is null");
     check_if(buffer == NULL, return -1, "buffer is null");
     check_if(buffer_size <= 0, return -1, "buffer_size is %d", buffer_size);
-    check_if(server->is_started == FALSE, return -1,
+    check_if(server->is_started == DTLS_FALSE, return -1,
              "server is not started yet");
 
     int recvlen;
@@ -1077,7 +1081,7 @@ int dtls_uninitClient(dtlsClient* client)
 int dtls_startClient(dtlsClient* client)
 {
     check_if(client == NULL, return DTLS_FAIL, "client is null");
-    check_if(client->is_started == TRUE, return DTLS_FAIL, "client is started");
+    check_if(client->is_started == DTLS_TRUE, return DTLS_FAIL, "client is started");
 
     client->fd = socket(client->server_addr.ss.ss_family, SOCK_DGRAM, 0);
     check_if(client->fd < 0, return DTLS_FAIL, "socket failed");
@@ -1155,7 +1159,7 @@ int dtls_startClient(dtlsClient* client)
         X509_free(pX509);
     }
 
-    client->is_started = TRUE;
+    client->is_started = DTLS_TRUE;
 
     return DTLS_OK;
 
@@ -1167,11 +1171,11 @@ _ERROR:
 int dtls_stopClient(dtlsClient* client)
 {
     check_if(client == NULL, return DTLS_FAIL, "client is null");
-    check_if(client->is_started == FALSE, return DTLS_FAIL,
+    check_if(client->is_started == DTLS_FALSE, return DTLS_FAIL,
              "client is stopped");
 
     SSL_shutdown(client->ssl);
-    client->is_started = FALSE;
+    client->is_started = DTLS_FALSE;
 
     return DTLS_OK;
 }
@@ -1182,10 +1186,10 @@ int dtls_sendData(dtlsClient* client, void* data, int data_len)
     check_if(data == NULL,   return -1, "data is null");
     check_if(data_len <= 0,  return -1, "data_len = %d", data_len);
 
-    check_if(client->is_started == FALSE, return -1,
+    check_if(client->is_started == DTLS_FALSE, return -1,
             "client is not started yet");
 
-    check_if(_isDtlsAlive(client->ssl) == FALSE, return -1,
+    check_if(_isDtlsAlive(client->ssl) == DTLS_FALSE, return -1,
             "client's ssl is not alive");
 
     int writelen;

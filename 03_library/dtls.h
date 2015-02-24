@@ -1,9 +1,12 @@
 #ifndef _DTLS_API_H_
 #define _DTLS_API_H_
 
-#include "basic.h"
-
 #include <sys/un.h>
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
@@ -11,13 +14,6 @@
 #include <openssl/rand.h>
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#define DTLS_OK   0
-#define DTLS_FAIL -1
-#define DTLS_END  0xabcd
-
-#define BUFFER_SIZE ( 1 << 16 )
-#define COOKIE_SECRET_LENGTH 16
 
 #define DTLS_CLIENT_PEM_PATH "certs/client-cert.pem"
 #define DTLS_CLIENT_KEY_PATH "certs/client-key.pem"
@@ -30,6 +26,20 @@
 #define DTLS_CONNECTION_DEFAULT_TIMEOUT 1
 
 ////////////////////////////////////////////////////////////////////////////////
+
+typedef enum
+{
+    DTLS_OK   = 0,
+    DTLS_FAIL = -1
+
+} dtlsStatus;
+
+typedef enum
+{
+    DTLS_TRUE  = 1,
+    DTLS_FALSE = 0
+
+} dtlsBool;
 
 typedef union
 {
@@ -47,10 +57,10 @@ typedef struct dtlsClient
     SSL*     ssl;
     BIO*     bio;
 
-    dtlsAddr server_addr;
+    dtlsAddr       server_addr;
     struct timeval timeout;
 
-    int is_started;
+    dtlsBool       is_started;
 
 } dtlsClient;
 
@@ -59,9 +69,8 @@ typedef struct dtlsConnInfo
     SSL *ssl;
     BIO *bio;
 
-    dtlsAddr client_addr;
-    dtlsAddr local_addr;
-
+    dtlsAddr       client_addr;
+    dtlsAddr       local_addr;
     struct timeval timeout;
 
     void* server;
@@ -88,9 +97,9 @@ typedef struct dtlsServer
     /////////////////////////////////////////
     int      dtls_fd;
     SSL_CTX* ctx;
-    dtlsAddr   local_addr;
+    dtlsAddr local_addr;
 
-    int       is_started;
+    dtlsBool  is_started;
     pthread_t listen_thread;
 
     dtlsConnInfo* conn_list;
@@ -99,29 +108,32 @@ typedef struct dtlsServer
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int dtls_initServer(const char* local_ip, const int local_port,
-                     dtlsServer* server);
-int dtls_uninitServer(dtlsServer* server);
+dtlsStatus dtls_initServer(const char* local_ip, const int local_port,
+                           dtlsServer* server);
 
-int dtls_startServer(dtlsServer* server);
-int dtls_stopServer(dtlsServer* server);
+dtlsStatus dtls_uninitServer(dtlsServer* server);
+
+dtlsStatus dtls_startServer(dtlsServer* server);
+dtlsStatus dtls_stopServer(dtlsServer* server);
 
 int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int dtls_initClient(const char* remote_ip, int remote_port,
-                     dtlsClient* client);
-int dtls_uninitClient(dtlsClient* client);
+dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
+                           dtlsClient* client);
 
-int dtls_startCient(dtlsClient* client);
-int dtls_stopClient(dtlsClient* client);
+dtlsStatus dtls_uninitClient(dtlsClient* client);
+
+dtlsStatus dtls_startCient(dtlsClient* client);
+dtlsStatus dtls_stopClient(dtlsClient* client);
 
 int dtls_sendData(dtlsClient* client, void* data, int data_len);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int  dtls_initSystem(void);
-void dtls_uninitSystem(void);
+dtlsStatus  dtls_initSystem(void);
+
+void        dtls_uninitSystem(void);
 
 #endif //_DTLS_API_H_

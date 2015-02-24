@@ -1,15 +1,32 @@
 
-#include "basic.h"
 #include "dtls.h"
 
 #include <sys/select.h>
 
-typedef struct unConnArg
-{
-    int unfd;
-    struct sockaddr_un unaddr;
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <signal.h>
 
-} unConnArg;
+////////////////////////////////////////////////////////////////////////////////
+
+#define BUFFER_SIZE 2048
+
+////////////////////////////////////////////////////////////////////////////////
+
+#define dprint(a, b...) fprintf(stdout, "%s(): "a"\n", __func__, ##b)
+#define derror(a, b...) fprintf(stderr, "[ERROR] %s(): "a"\n", __func__, ##b)
+
+#define check_if(assertion, error_action, ...) \
+{\
+    if (assertion) \
+    { \
+        derror(__VA_ARGS__); \
+        {error_action;} \
+    }\
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
