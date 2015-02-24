@@ -2,7 +2,6 @@
 #define _DTLS_API_H_
 
 #include <sys/un.h>
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -17,11 +16,9 @@
 
 #define DTLS_CLIENT_PEM_PATH "certs/client-cert.pem"
 #define DTLS_CLIENT_KEY_PATH "certs/client-key.pem"
-#define DTLS_CLIENT_DEFAULT_TIMEOUT 5
 
 #define DTLS_SERVER_PEM_PATH "certs/server-cert.pem"
 #define DTLS_SERVER_KEY_PATH "certs/server-key.pem"
-#define DTLS_SERVER_DEFAULT_TIMEOUT 5
 
 #define DTLS_CONNECTION_DEFAULT_TIMEOUT 1
 
@@ -99,6 +96,8 @@ typedef struct dtlsServer
     SSL_CTX* ctx;
     dtlsAddr local_addr;
 
+    struct timeval timeout;
+
     dtlsBool  is_started;
     pthread_t listen_thread;
 
@@ -109,6 +108,7 @@ typedef struct dtlsServer
 ////////////////////////////////////////////////////////////////////////////////
 
 dtlsStatus dtls_initServer(const char* local_ip, const int local_port,
+                           struct timeval timeout,
                            dtlsServer* server);
 
 dtlsStatus dtls_uninitServer(dtlsServer* server);
@@ -121,6 +121,7 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size);
 ////////////////////////////////////////////////////////////////////////////////
 
 dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
+                           struct timeval timeout,
                            dtlsClient* client);
 
 dtlsStatus dtls_uninitClient(dtlsClient* client);

@@ -14,6 +14,9 @@
 
 #define BUFFER_SIZE 2048
 
+#define CLIENT_DEFAULT_TIMEOUT 5
+#define SERVER_DEFAULT_TIMEOUT 5
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #define dprint(a, b...) fprintf(stdout, "%s(): "a"\n", __func__, ##b)
@@ -80,8 +83,12 @@ static void _server(int local_port)
 
     dtlsServer     server  = {};
     struct timeval timeout = {};
+    struct timeval dtls_timeout = {
+        .tv_sec  = SERVER_DEFAULT_TIMEOUT,
+        .tv_usec = 0,
+    };
 
-    check = dtls_initServer(NULL, local_port, &server);
+    check = dtls_initServer(NULL, local_port, dtls_timeout, &server);
     check_if(check != DTLS_OK, return, "dtls_initServer failed");
 
     check = dtls_startServer(&server);
@@ -129,11 +136,16 @@ static void _server(int local_port)
 static void _client(char* remote_ip, int remote_port)
 {
     dtlsClient client = {};
+    struct timeval timeout = {
+        .tv_sec = CLIENT_DEFAULT_TIMEOUT,
+        .tv_usec = 0,
+    };
+
     int  check;
 
     dprint("client open");
 
-    check = dtls_initClient(remote_ip, remote_port, &client);
+    check = dtls_initClient(remote_ip, remote_port, timeout, &client);
     check_if(check != DTLS_OK, return, "dtls_initClient failed");
 
     check = dtls_startClient(&client);

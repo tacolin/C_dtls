@@ -301,10 +301,8 @@ static dtlsConnInfo* _createConnInfo(BIO* bio, SSL* ssl, dtlsAddr client_addr,
     memcpy(&info->local_addr,  &server->local_addr,
            sizeof(struct sockaddr_storage));
 
-    info->timeout.tv_sec  = DTLS_SERVER_DEFAULT_TIMEOUT;
-    info->timeout.tv_usec = 0;
-
-    info->server = server;
+    info->timeout = server->timeout;
+    info->server  = server;
 
     check = _saveConnInfo(server, info);
     check_if(check != DTLS_OK, goto _ERROR, "_saveConnInfo failed");
@@ -835,7 +833,7 @@ int dtls_stopServer(dtlsServer* server)
     pthread_join(server->listen_thread, NULL);
 
     int i;
-    for (i=0; i<DTLS_SERVER_DEFAULT_TIMEOUT && server->conn_list; i++)
+    for (i=0; (i<server->timeout.tv_sec+5)&&(server->conn_list); i++)
     {
         dprint("wait for all conn thread over ... %d secs", (i+1));
         sleep(1);
@@ -847,6 +845,7 @@ int dtls_stopServer(dtlsServer* server)
 }
 
 int dtls_initServer(const char* local_ip, const int local_port,
+                    struct timeval timeout,
                     dtlsServer* server)
 {
     int check;
@@ -944,6 +943,8 @@ int dtls_initServer(const char* local_ip, const int local_port,
         check_if(check < 0, goto _ERROR, "bind AF_INET6 failed");
     }
 
+    server->timeout    = timeout;
+
     server->is_started = DTLS_FALSE;
 
     dprint("ok");
@@ -1019,7 +1020,9 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
     return recvlen;
 }
 
-int dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client)
+int dtls_initClient(const char* remote_ip, int remote_port,
+                    struct timeval timeout,
+                    dtlsClient* client)
 {
     int check;
 
@@ -1031,8 +1034,7 @@ int dtls_initClient(const char* remote_ip, int remote_port, dtlsClient* client)
     check = _configAddr(remote_ip, remote_port, &(client->server_addr));
     check_if(check != DTLS_OK, return check, "_configAddr failed");
 
-    client->timeout.tv_sec  = DTLS_CLIENT_DEFAULT_TIMEOUT;
-    client->timeout.tv_usec = 0;
+    client->timeout = timeout;
 
     return DTLS_OK;
 }
