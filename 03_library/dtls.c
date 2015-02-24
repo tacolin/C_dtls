@@ -4,6 +4,21 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#define dprint(a, b...) fprintf(stdout, "%s(): "a"\n", __func__, ##b)
+#define derror(a, b...) fprintf(stderr, "[ERROR] %s(): "a"\n", __func__, ##b)
+
+#define check_if(assertion, error_action, ...) \
+{\
+    if (assertion) \
+    { \
+        derror(__VA_ARGS__); \
+        {error_action;} \
+    }\
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+
 static unsigned char    _cookie_secret[COOKIE_SECRET_LENGTH] = {0};
 static int              _cookie_initialized = 0;
 static pthread_mutex_t* _mutex_buf       = NULL;
@@ -52,7 +67,7 @@ static int _createUnixSocketClient(dtlsServer* server)
     check_if(fd < 0, goto _ERROR, "socket failed");
 
     strncpy(unaddr.sun_path, server->unpath, sizeof(unaddr.sun_path) - 1);
-    
+
     server->un_client_fd   = fd;
     server->un_client_addr = unaddr;
 
@@ -264,7 +279,7 @@ static void _destroyConnInfo(dtlsConnInfo* info)
     return;
 }
 
-static dtlsConnInfo* _createConnInfo(BIO* bio, SSL* ssl, myaddr client_addr,
+static dtlsConnInfo* _createConnInfo(BIO* bio, SSL* ssl, dtlsAddr client_addr,
                                      dtlsServer *server)
 {
     dtlsConnInfo* info = NULL;
@@ -321,7 +336,7 @@ static void _sslLockFunc(int mode, int n, const char *file, int line)
     }
 }
 
-static int _configAddr(const char* ip_str, const int port, myaddr* addr)
+static int _configAddr(const char* ip_str, const int port, dtlsAddr* addr)
 {
     check_if(ip_str == NULL, return DTLS_FAIL, "ip_str is null");
     check_if(addr == NULL, return DTLS_FAIL, "addr is null");
@@ -359,7 +374,7 @@ static int _verifyCookie(SSL *ssl, unsigned char *cookie,
 {
     unsigned char *buffer, result[EVP_MAX_MD_SIZE];
     unsigned int length = 0, resultlength;
-    myaddr peer = {};
+    dtlsAddr peer = {};
 
     /* If secret isn't initialized yet, the cookie can't be valid */
     if (!_cookie_initialized)
@@ -440,7 +455,7 @@ static int _generateCookie(SSL *ssl, unsigned char *cookie,
 {
     unsigned char *buffer, result[EVP_MAX_MD_SIZE];
     unsigned int length = 0, resultlength;
-    myaddr peer= {};
+    dtlsAddr peer= {};
 
     /* Initialize a random secret */
     if (!_cookie_initialized)
@@ -612,7 +627,7 @@ static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
 
         dprint("read : %s", buffer);
 
-        sendlen = sendto(server->un_client_fd, buffer, readlen, 0, 
+        sendlen = sendto(server->un_client_fd, buffer, readlen, 0,
                          (struct sockaddr*)&server->un_client_addr,
                          sizeof(struct sockaddr_un));
         if (sendlen <= 0)
@@ -715,7 +730,7 @@ _CLEANUP:
 static void* _listenDtlsServer(void* arg)
 {
     dtlsServer*    server      = (dtlsServer*)arg;
-    myaddr         client_addr = {};
+    dtlsAddr         client_addr = {};
     BIO*           bio         = NULL;
     SSL*           ssl         = NULL;
     struct timeval timeout     = {};
@@ -902,24 +917,24 @@ int dtls_initServer(const char* local_ip, const int local_port,
     server->dtls_fd = socket(server->local_addr.ss.ss_family, SOCK_DGRAM, 0);
     check_if(server->dtls_fd < 0, goto _ERROR, "socket create failed");
 
-    check = setsockopt(server->dtls_fd, SOL_SOCKET, SO_REUSEADDR, 
+    check = setsockopt(server->dtls_fd, SOL_SOCKET, SO_REUSEADDR,
                        (const void*)&on, (socklen_t)sizeof(on));
     check_if(check < 0, goto _ERROR, "setsockopt reuse addr failed");
 
     if (server->local_addr.ss.ss_family == AF_INET)
     {
-        check = bind(server->dtls_fd, 
+        check = bind(server->dtls_fd,
                      (const struct sockaddr*)&server->local_addr,
                      sizeof(struct sockaddr_in));
         check_if(check < 0, goto _ERROR, "bind AF_INET failed");
     }
     else
     {
-        check = setsockopt(server->dtls_fd, IPPROTO_IPV6, IPV6_V6ONLY, 
+        check = setsockopt(server->dtls_fd, IPPROTO_IPV6, IPV6_V6ONLY,
                            (char*)&off, sizeof(off));
         check_if(check < 0, goto _ERROR, "setsockopt ipv6 only failed");
 
-        check = bind(server->dtls_fd, 
+        check = bind(server->dtls_fd,
                      (const struct sockaddr*)&server->local_addr,
                      sizeof(struct sockaddr_in6));
         check_if(check < 0, goto _ERROR, "bind AF_INET6 failed");
@@ -983,7 +998,7 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
     check_if(server == NULL, return -1, "server is null");
     check_if(buffer == NULL, return -1, "buffer is null");
     check_if(buffer_size <= 0, return -1, "buffer_size is %d", buffer_size);
-    check_if(server->is_started == FALSE, return -1, 
+    check_if(server->is_started == FALSE, return -1,
              "server is not started yet");
 
     int recvlen;
@@ -1141,7 +1156,7 @@ int dtls_startClient(dtlsClient* client)
     }
 
     client->is_started = TRUE;
-    
+
     return DTLS_OK;
 
 _ERROR:
@@ -1152,7 +1167,7 @@ _ERROR:
 int dtls_stopClient(dtlsClient* client)
 {
     check_if(client == NULL, return DTLS_FAIL, "client is null");
-    check_if(client->is_started == FALSE, return DTLS_FAIL, 
+    check_if(client->is_started == FALSE, return DTLS_FAIL,
              "client is stopped");
 
     SSL_shutdown(client->ssl);
@@ -1167,12 +1182,12 @@ int dtls_sendData(dtlsClient* client, void* data, int data_len)
     check_if(data == NULL,   return -1, "data is null");
     check_if(data_len <= 0,  return -1, "data_len = %d", data_len);
 
-    check_if(client->is_started == FALSE, return -1, 
+    check_if(client->is_started == FALSE, return -1,
             "client is not started yet");
 
-    check_if(_isDtlsAlive(client->ssl) == FALSE, return -1, 
+    check_if(_isDtlsAlive(client->ssl) == FALSE, return -1,
             "client's ssl is not alive");
-    
+
     int writelen;
     int check;
 

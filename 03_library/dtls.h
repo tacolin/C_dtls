@@ -12,8 +12,8 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define DTLS_OK   OK
-#define DTLS_FAIL FAIL
+#define DTLS_OK   0
+#define DTLS_FAIL -1
 #define DTLS_END  0xabcd
 
 #define BUFFER_SIZE ( 1 << 16 )
@@ -37,7 +37,7 @@ typedef union
     struct sockaddr_in      s4;
     struct sockaddr_in6     s6;
 
-} myaddr;
+} dtlsAddr;
 
 typedef struct dtlsClient
 {
@@ -47,7 +47,7 @@ typedef struct dtlsClient
     SSL*     ssl;
     BIO*     bio;
 
-    myaddr server_addr;
+    dtlsAddr server_addr;
     struct timeval timeout;
 
     int is_started;
@@ -59,8 +59,8 @@ typedef struct dtlsConnInfo
     SSL *ssl;
     BIO *bio;
 
-    myaddr client_addr;
-    myaddr local_addr;
+    dtlsAddr client_addr;
+    dtlsAddr local_addr;
 
     struct timeval timeout;
 
@@ -73,7 +73,7 @@ typedef struct dtlsConnInfo
 typedef struct dtlsServer
 {
     /////////////////////////////////////////
-    // unix domain socket 
+    // unix domain socket
     /////////////////////////////////////////
     char               unpath[20];
 
@@ -88,7 +88,7 @@ typedef struct dtlsServer
     /////////////////////////////////////////
     int      dtls_fd;
     SSL_CTX* ctx;
-    myaddr   local_addr;
+    dtlsAddr   local_addr;
 
     int       is_started;
     pthread_t listen_thread;
