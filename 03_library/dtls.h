@@ -38,7 +38,7 @@ typedef union
 
 typedef struct dtlsClient
 {
-    int fd;
+    int dtls_fd;
 
     SSL_CTX* ctx;
     SSL*     ssl;
@@ -110,8 +110,8 @@ dtlsStatus dtls_uninitServer(dtlsServer* server);
 dtlsStatus dtls_startServer(dtlsServer* server);
 dtlsStatus dtls_stopServer(dtlsServer* server);
 
-int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size,
-                  dtlsAddr* client_addr);
+int dtls_recvServerData(dtlsServer* server, void* buffer, int buffer_size,
+                        dtlsAddr* client_addr);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -126,6 +126,9 @@ dtlsStatus dtls_startClient(dtlsClient* client);
 dtlsStatus dtls_stopClient(dtlsClient* client);
 
 int dtls_sendData(dtlsClient* client, void* data, int data_len);
+
+int dtls_recvClientData(dtlsClient* client, void* buffer, int buffer_size,
+                        dtlsAddr* server_addr);
 
 ////////////////////////////////////////////////////////////////////////////////
 

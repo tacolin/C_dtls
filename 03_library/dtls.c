@@ -667,7 +667,7 @@ static void* _handleDtlsConn(void *arg)
     ///////////////////////////////////////////////////////////////////////////
     // Open new Socket, bind, connect
     ///////////////////////////////////////////////////////////////////////////
-    int fd;
+    int fd = -1;
     const int on = 1, off = 0;
 
     fd = socket(info->client_addr.ss.ss_family, SOCK_DGRAM, 0);
@@ -731,6 +731,11 @@ static void* _handleDtlsConn(void *arg)
 _CLEANUP:
     SSL_shutdown(info->ssl);
     dprint("shutdown SSL");
+
+    if (fd > 0)
+    {
+        close(fd);
+    }
 
     _destroyConnInfo(info);
     dprint("Thread %lx: done, connection closed.", _dtlsIdCallback());
@@ -1007,8 +1012,8 @@ dtlsStatus dtls_uninitServer(dtlsServer* server)
     return DTLS_OK;
 }
 
-int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size,
-                  dtlsAddr* client_addr)
+int dtls_recvServerData(dtlsServer* server, void* buffer, int buffer_size,
+                        dtlsAddr* client_addr)
 {
     check_if(server == NULL, return -1, "server is null");
     check_if(buffer == NULL, return -1, "buffer is null");
@@ -1073,9 +1078,9 @@ dtlsStatus dtls_uninitClient(dtlsClient* client)
         dtls_stopClient(client);
     }
 
-    if (client->fd > 0)
+    if (client->dtls_fd > 0)
     {
-        close(client->fd);
+        close(client->dtls_fd);
     }
 
     if (client->cert_path)
@@ -1118,14 +1123,19 @@ dtlsStatus dtls_uninitClient(dtlsClient* client)
 dtlsStatus dtls_startClient(dtlsClient* client)
 {
     int check;
+    const int on = 1;
 
     check_if(client == NULL, return DTLS_FAIL, "client is null");
     check_if(client->is_started == DTLS_TRUE, return DTLS_FAIL, "client is started");
 
-    client->fd = socket(client->server_addr.ss.ss_family, SOCK_DGRAM, 0);
-    check_if(client->fd < 0, return DTLS_FAIL, "socket failed");
+    client->dtls_fd = socket(client->server_addr.ss.ss_family, SOCK_DGRAM, 0);
+    check_if(client->dtls_fd < 0, return DTLS_FAIL, "socket failed");
 
-    check = bind(client->fd, (const struct sockaddr*)&client->local_addr,
+    check = setsockopt(client->dtls_fd, SOL_SOCKET, SO_REUSEADDR,
+                       (const void*)&on, (socklen_t)sizeof(on));
+    check_if(check < 0, return DTLS_FAIL, "setsockopt client local_addr failed");
+
+    check = bind(client->dtls_fd, (const struct sockaddr*)&client->local_addr,
                  sizeof(struct sockaddr_in));
     check_if(check < 0, return DTLS_FAIL, "bind client local_addr failed");
 
@@ -1161,15 +1171,15 @@ dtlsStatus dtls_startClient(dtlsClient* client)
     client->ssl = SSL_new(client->ctx);
 
     /* Create BIO, connect and set to already connected */
-    client->bio = BIO_new_dgram(client->fd, BIO_CLOSE);
+    client->bio = BIO_new_dgram(client->dtls_fd, BIO_CLOSE);
     if (client->server_addr.ss.ss_family == AF_INET)
     {
-        connect(client->fd, (struct sockaddr*)&client->server_addr,
+        connect(client->dtls_fd, (struct sockaddr*)&client->server_addr,
                 sizeof(struct sockaddr_in));
     }
     else
     {
-        connect(client->fd, (struct sockaddr*)&client->server_addr,
+        connect(client->dtls_fd, (struct sockaddr*)&client->server_addr,
                 sizeof(struct sockaddr_in6));
     }
 

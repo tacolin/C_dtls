@@ -122,7 +122,7 @@ static void _server(int local_port)
         {
             if (FD_ISSET(server.fd, &readset))
             {
-                recvlen = dtls_recvData(&server, buffer, BUFFER_SIZE, &client_addr);
+                recvlen = dtls_recvServerData(&server, buffer, BUFFER_SIZE, &client_addr);
                 if (recvlen <= 0)
                 {
                     derror("dtls_recvData failed");
