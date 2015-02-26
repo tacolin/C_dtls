@@ -44,7 +44,7 @@ typedef struct dtlsClient
     SSL*     ssl;
     BIO*     bio;
 
-    char* pem_path;
+    char* cert_path;
     char* key_path;
 
     dtlsAddr       server_addr;
@@ -109,7 +109,8 @@ dtlsStatus dtls_uninitServer(dtlsServer* server);
 dtlsStatus dtls_startServer(dtlsServer* server);
 dtlsStatus dtls_stopServer(dtlsServer* server);
 
-int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size);
+int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size, 
+                  dtlsAddr* client_addr);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -119,7 +120,7 @@ dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
 
 dtlsStatus dtls_uninitClient(dtlsClient* client);
 
-dtlsStatus dtls_startCient(dtlsClient* client);
+dtlsStatus dtls_startClient(dtlsClient* client);
 dtlsStatus dtls_stopClient(dtlsClient* client);
 
 int dtls_sendData(dtlsClient* client, void* data, int data_len);

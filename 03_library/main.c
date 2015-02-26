@@ -81,6 +81,8 @@ static void _server(int local_port)
     char   buffer[BUFFER_SIZE] = {0};
     int    recvlen;
 
+    dtlsAddr client_addr = {};
+
     dtlsServer     server  = {};
     struct timeval timeout = {};
     struct timeval dtls_timeout = {
@@ -118,7 +120,7 @@ static void _server(int local_port)
         {
             if (FD_ISSET(server.fd, &readset))
             {
-                recvlen = dtls_recvData(&server, buffer, BUFFER_SIZE);
+                recvlen = dtls_recvData(&server, buffer, BUFFER_SIZE, &client_addr);
                 if (recvlen <= 0)
                 {
                     derror("dtls_recvData failed");

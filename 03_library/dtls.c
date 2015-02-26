@@ -304,12 +304,11 @@ static dtlsConnInfo* _createConnInfo(BIO* bio, SSL* ssl, dtlsAddr client_addr,
     info->bio = bio;
     info->ssl = ssl;
 
-    memcpy(&info->client_addr, &client_addr, sizeof(struct sockaddr_storage));
-    memcpy(&info->local_addr,  &server->local_addr,
-           sizeof(struct sockaddr_storage));
+    info->client_addr = client_addr;
+    info->local_addr  = server->local_addr;
 
-    info->timeout = server->timeout;
-    info->server  = server;
+    info->timeout     = server->timeout;
+    info->server      = server;
 
     check = _saveConnInfo(server, info);
     check_if(check != DTLS_OK, goto _ERROR, "_saveConnInfo failed");
@@ -606,6 +605,7 @@ static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
     char buffer[DTLS_BUF_SIZE] = {0};
     int  readlen;
     int  sendlen;
+    int  addrlen;
     int  check;
     SSL* ssl;
     dtlsServer* server;
@@ -618,9 +618,11 @@ static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
     server = (dtlsServer*)info->server;
     check_if(server == NULL, goto _END, "info->server is null");
 
+    addrlen = sizeof(dtlsAddr);
+
     while (_isDtlsAlive(ssl) && server->is_started)
     {
-        readlen = SSL_read(ssl, buffer, DTLS_BUF_SIZE);
+        readlen = SSL_read(ssl, buffer, DTLS_BUF_SIZE-addrlen);
         check = _checkSslRead(ssl, buffer, readlen);
         if (check == DTLS_FAIL)
         {
@@ -635,7 +637,10 @@ static void _transferDataToUnixSocketServer(dtlsConnInfo* info)
 
         dprint("read : %s", buffer);
 
-        sendlen = sendto(server->un_client_fd, buffer, readlen, 0,
+        // append dtlsAddr
+        memcpy(buffer + readlen, &info->client_addr, addrlen);
+
+        sendlen = sendto(server->un_client_fd, buffer, readlen + addrlen, 0,
                          (struct sockaddr*)&server->un_client_addr,
                          sizeof(struct sockaddr_un));
         if (sendlen <= 0)
@@ -684,7 +689,6 @@ static void* _handleDtlsConn(void *arg)
                             sizeof(struct sockaddr_in));
             check_if(check < 0, goto _CLEANUP,
                      "AF_INET connect client addr failed");
-
             break;
 
         case AF_INET6:
@@ -738,7 +742,7 @@ _CLEANUP:
 static void* _listenDtlsServer(void* arg)
 {
     dtlsServer*    server      = (dtlsServer*)arg;
-    dtlsAddr         client_addr = {};
+    dtlsAddr       client_addr = {};
     BIO*           bio         = NULL;
     SSL*           ssl         = NULL;
     struct timeval timeout     = {};
@@ -816,7 +820,7 @@ _END:
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int dtls_startServer(dtlsServer* server)
+dtlsStatus dtls_startServer(dtlsServer* server)
 {
     check_if(server == NULL, return DTLS_FAIL, "server is null");
     check_if(server->is_started == DTLS_TRUE, return DTLS_FAIL, "server is started");
@@ -828,7 +832,7 @@ int dtls_startServer(dtlsServer* server)
     return DTLS_OK;
 }
 
-int dtls_stopServer(dtlsServer* server)
+dtlsStatus dtls_stopServer(dtlsServer* server)
 {
     check_if(server == NULL, return DTLS_FAIL, "server is null");
     check_if(server->is_started == DTLS_FALSE, return DTLS_FAIL,"server is stopped");
@@ -851,13 +855,13 @@ int dtls_stopServer(dtlsServer* server)
 }
 
 dtlsStatus dtls_initServer(const char* local_ip, const int local_port,
-                           const char* pem_path, const char* key_path,
+                           const char* cert_path, const char* key_path,
                            struct timeval timeout, dtlsServer* server)
 {
     int check;
 
     check_if(server == NULL, return DTLS_FAIL, "server is null");
-    check_if(pem_path == NULL, return DTLS_FAIL, "pem_path is null");
+    check_if(cert_path == NULL, return DTLS_FAIL, "cert_path is null");
     check_if(key_path == NULL, return DTLS_FAIL, "key_path is null");
 
     memset(server, 0, sizeof(dtlsServer));
@@ -897,7 +901,7 @@ dtlsStatus dtls_initServer(const char* local_ip, const int local_port,
     SSL_CTX_set_cipher_list(server->ctx, "ALL:NULL:eNULL:aNULL");
     SSL_CTX_set_session_cache_mode(server->ctx, SSL_SESS_CACHE_OFF);
 
-    if (!SSL_CTX_use_certificate_file(server->ctx, pem_path,
+    if (!SSL_CTX_use_certificate_file(server->ctx, cert_path,
                                         SSL_FILETYPE_PEM))
     {
         derror("ERROR: no certificate found!");
@@ -965,7 +969,7 @@ _ERROR:
 
  }
 
-int dtls_uninitServer(dtlsServer* server)
+dtlsStatus dtls_uninitServer(dtlsServer* server)
 {
     check_if(server == NULL, return DTLS_FAIL, "server is null");
 
@@ -1006,13 +1010,15 @@ int dtls_uninitServer(dtlsServer* server)
     return DTLS_OK;
 }
 
-int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
+int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size,
+                  dtlsAddr* client_addr)
 {
     check_if(server == NULL, return -1, "server is null");
     check_if(buffer == NULL, return -1, "buffer is null");
     check_if(buffer_size <= 0, return -1, "buffer_size is %d", buffer_size);
     check_if(server->is_started == DTLS_FALSE, return -1,
              "server is not started yet");
+    check_if(client_addr == NULL, return -1, "client_addr is null");
 
     int recvlen;
     socklen_t addrlen = sizeof(struct sockaddr_un);
@@ -1025,18 +1031,23 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size)
         derror("recvfrom failed");
     }
 
+    recvlen = recvlen - sizeof(dtlsAddr);
+
+    // get dtls addr
+    memcpy(client_addr, buffer+recvlen, sizeof(dtlsAddr));
+
     return recvlen;
 }
 
-int dtls_initClient(const char* remote_ip, int remote_port,
-                    const char* pem_path, const char* key_path,
+dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
+                    const char* cert_path, const char* key_path,
                     struct timeval timeout, dtlsClient* client)
 {
     int check;
 
     check_if(client == NULL,    return DTLS_FAIL, "client is null");
     check_if(remote_ip == NULL, return DTLS_FAIL, "remote_ip is null");
-    check_if(pem_path == NULL, return DTLS_FAIL, "pem_path is null");
+    check_if(cert_path == NULL, return DTLS_FAIL, "cert_path is null");
     check_if(key_path == NULL, return DTLS_FAIL, "key_path is null");
 
     memset(client, 0, sizeof(dtlsClient));
@@ -1044,7 +1055,7 @@ int dtls_initClient(const char* remote_ip, int remote_port,
     check = _configAddr(remote_ip, remote_port, &(client->server_addr));
     check_if(check != DTLS_OK, return check, "_configAddr failed");
 
-    asprintf(&(client->pem_path), "%s", pem_path);
+    asprintf(&(client->cert_path), "%s", cert_path);
     asprintf(&(client->key_path), "%s", key_path);
 
     client->timeout = timeout;
@@ -1052,7 +1063,7 @@ int dtls_initClient(const char* remote_ip, int remote_port,
     return DTLS_OK;
 }
 
-int dtls_uninitClient(dtlsClient* client)
+dtlsStatus dtls_uninitClient(dtlsClient* client)
 {
     check_if(client == NULL, return DTLS_FAIL, "client is null");
 
@@ -1066,9 +1077,9 @@ int dtls_uninitClient(dtlsClient* client)
         close(client->fd);
     }
 
-    if (client->pem_path)
+    if (client->cert_path)
     {
-        free(client->pem_path);
+        free(client->cert_path);
     }
 
     if (client->key_path)
@@ -1103,7 +1114,7 @@ int dtls_uninitClient(dtlsClient* client)
     return DTLS_OK;
 }
 
-int dtls_startClient(dtlsClient* client)
+dtlsStatus dtls_startClient(dtlsClient* client)
 {
     check_if(client == NULL, return DTLS_FAIL, "client is null");
     check_if(client->is_started == DTLS_TRUE, return DTLS_FAIL, "client is started");
@@ -1117,7 +1128,7 @@ int dtls_startClient(dtlsClient* client)
     client->ctx = SSL_CTX_new(DTLSv1_client_method());
     SSL_CTX_set_cipher_list(client->ctx, "eNULL:!MD5");
 
-    if (!SSL_CTX_use_certificate_file(client->ctx, client->pem_path,
+    if (!SSL_CTX_use_certificate_file(client->ctx, client->cert_path,
                                         SSL_FILETYPE_PEM))
     {
         derror("ERROR: no certificate found!");
@@ -1193,7 +1204,7 @@ _ERROR:
     return DTLS_FAIL;
 }
 
-int dtls_stopClient(dtlsClient* client)
+dtlsStatus dtls_stopClient(dtlsClient* client)
 {
     check_if(client == NULL, return DTLS_FAIL, "client is null");
     check_if(client->is_started == DTLS_FALSE, return DTLS_FAIL,
@@ -1227,7 +1238,7 @@ int dtls_sendData(dtlsClient* client, void* data, int data_len)
     return writelen;
 }
 
-int dtls_initSystem(void)
+dtlsStatus dtls_initSystem(void)
 {
     _mutex_buf = (pthread_mutex_t*)calloc(sizeof(pthread_mutex_t),
                                           CRYPTO_num_locks());
