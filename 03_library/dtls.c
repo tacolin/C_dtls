@@ -589,9 +589,9 @@ int _acceptSslConn(dtlsConnInfo *info, int fd, char* buffer, char* addr_buf)
         X509_NAME_print_ex_fp(stdout, X509_get_subject_name(pX509),
                               1, XN_FLAG_MULTILINE);
         printf("\n\n");
-        printf("Cipher: %s",
-               SSL_CIPHER_get_name(SSL_get_current_cipher(info->ssl)));
-        printf("-----------------------------------------------------------\n");
+        // printf("Cipher: %s",
+        //        SSL_CIPHER_get_name(SSL_get_current_cipher(info->ssl)));
+        // printf("-----------------------------------------------------------\n");
 
         X509_free(pX509);
     }
@@ -873,12 +873,9 @@ dtlsStatus dtls_initServer(const char* local_ip, const int local_port,
     }
     else
     {
-        server->local_addr.s6.sin6_family = AF_INET6;
-        server->local_addr.s6.sin6_addr   = in6addr_any;
-        server->local_addr.s6.sin6_port   = htons(local_port);
-#ifdef HAVE_SIN6_LEN
-        server->local_addr.s6.sin6_len = sizeof(struct sockaddr_in6);
-#endif
+        server->local_addr.s4.sin_family      = AF_INET;
+        server->local_addr.s4.sin_addr.s_addr = INADDR_ANY;
+        server->local_addr.s4.sin_port        = htons(local_port);
     }
 
     snprintf(server->unpath, 20, "DTLS_SERVER_%d", local_port);
