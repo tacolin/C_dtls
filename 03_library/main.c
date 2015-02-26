@@ -33,12 +33,13 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static const int _port    = 23232;
+static const int _port          = 40000;
+static const int _local_port    = 30000;
 static int       _running = 1;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static void _client(char* remote_ip, int remote_port);
+static void _client(char* remote_ip, int remote_port, int local_port);
 static void _server(int local_port);
 
 static void _sigIntHandler(int sigNum)
@@ -60,7 +61,7 @@ int main(int argc, char *argv[])
 
     if (argc >= 2)
     {
-        _client(argv[1], _port);
+        _client(argv[1], _port, _local_port);
     }
     else
     {
@@ -82,6 +83,7 @@ static void _server(int local_port)
     int    recvlen;
 
     dtlsAddr client_addr = {};
+    char   client_ip[INET_ADDRSTRLEN];
 
     dtlsServer     server  = {};
     struct timeval timeout = {};
@@ -127,7 +129,9 @@ static void _server(int local_port)
                     break;
                 }
 
-                dprint("select recv : %s", buffer);
+                dprint("select recv : %s, from %s : %d", buffer,
+                       inet_ntop(AF_INET, &client_addr.s4.sin_addr, client_ip, INET_ADDRSTRLEN),
+                       ntohs(client_addr.s4.sin_port));
             }
         }
     }
@@ -138,7 +142,7 @@ static void _server(int local_port)
     return;
 }
 
-static void _client(char* remote_ip, int remote_port)
+static void _client(char* remote_ip, int remote_port, int local_port)
 {
     dtlsClient client = {};
     struct timeval timeout = {
@@ -150,7 +154,7 @@ static void _client(char* remote_ip, int remote_port)
 
     dprint("client open");
 
-    check = dtls_initClient(remote_ip, remote_port,
+    check = dtls_initClient(remote_ip, remote_port, local_port,
                             "certs/client-cert.pem",
                             "certs/client-key.pem",
                             timeout, &client);

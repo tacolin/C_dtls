@@ -48,6 +48,7 @@ typedef struct dtlsClient
     char* key_path;
 
     dtlsAddr       server_addr;
+    dtlsAddr       local_addr;
     struct timeval timeout;
 
     dtlsBool       is_started;
@@ -109,14 +110,15 @@ dtlsStatus dtls_uninitServer(dtlsServer* server);
 dtlsStatus dtls_startServer(dtlsServer* server);
 dtlsStatus dtls_stopServer(dtlsServer* server);
 
-int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size, 
+int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size,
                   dtlsAddr* client_addr);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
-                           const char* pem_path, const char* key_path,
-                           struct timeval timeout, dtlsClient* client);
+                    int local_port,
+                    const char* cert_path, const char* key_path,
+                    struct timeval timeout, dtlsClient* client);
 
 dtlsStatus dtls_uninitClient(dtlsClient* client);
 

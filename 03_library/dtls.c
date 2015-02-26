@@ -1037,6 +1037,7 @@ int dtls_recvData(dtlsServer* server, void* buffer, int buffer_size,
 }
 
 dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
+                    int local_port,
                     const char* cert_path, const char* key_path,
                     struct timeval timeout, dtlsClient* client)
 {
@@ -1051,6 +1052,9 @@ dtlsStatus dtls_initClient(const char* remote_ip, int remote_port,
 
     check = _configAddr(remote_ip, remote_port, &(client->server_addr));
     check_if(check != DTLS_OK, return check, "_configAddr failed");
+
+    client->local_addr.s4.sin_family = AF_INET;
+    client->local_addr.s4.sin_port   = htons(local_port);
 
     asprintf(&(client->cert_path), "%s", cert_path);
     asprintf(&(client->key_path), "%s", key_path);
@@ -1113,11 +1117,17 @@ dtlsStatus dtls_uninitClient(dtlsClient* client)
 
 dtlsStatus dtls_startClient(dtlsClient* client)
 {
+    int check;
+
     check_if(client == NULL, return DTLS_FAIL, "client is null");
     check_if(client->is_started == DTLS_TRUE, return DTLS_FAIL, "client is started");
 
     client->fd = socket(client->server_addr.ss.ss_family, SOCK_DGRAM, 0);
     check_if(client->fd < 0, return DTLS_FAIL, "socket failed");
+
+    check = bind(client->fd, (const struct sockaddr*)&client->local_addr,
+                 sizeof(struct sockaddr_in));
+    check_if(check < 0, return DTLS_FAIL, "bind client local_addr failed");
 
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
